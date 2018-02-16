@@ -1,0 +1,241 @@
+MS SQL server migration extension
+---------------------------------
+
+msmov is a PostgreSQL Extension to migrate from MSSQL to PostgreSQL using  foreign data wrapper tds_fdw 
+
+msmov will migrate tables, constraints, indexs and views, other objects (triggers, functions, procedures, etc) don't be migrate,
+
+
+
+The extension work with postgreSQL 9.5+ and use  foreign data wrapper tds_fdw 2.0.0-alpha.1 or +
+
+
+PREREQUISITES:
+Previous install msmov you must install and configure the FDW tds_fdw , for example:
+download FWD from : https://github.com/cybertec-postgresql/tds_fdw  and install (check PREREQUISITES intall from tds_fdw), then load the extension in PostgreSQL
+
+
+CREATE EXTENSION tds_fdw;
+
+
+CREATE SERVER mssql_name
+   FOREIGN DATA WRAPPER tds_fdw
+  OPTIONS (database 'dataname',port '1433',servername 'x.x.x.x',tds_version '7.1');
+
+  CREATE USER MAPPING 
+   FOR pguser
+   SERVER mssql_name
+  OPTIONS (password 'mypass',username 'msuser');
+
+
+
+pguser has the privilege to create PostgreSQL schemas  and MSSQL msuser has read access to catalog's views and table(sys schema)
+
+
+
+INSTALL:
+sudo make install
+
+In  database
+CREATE EXTENSION msmov;
+
+
+DESCRIPTIONS:
+
+Principals functions:
+
+-msmov.migrate(source_schema,  fdw_name, dat, lower);
+
+msmov.migrate:migrate tables constraint, index and views( the data will be migrated all at once) 
+
+source_schema text: MSSQL schema  from read objects to migrate
+fdw_name text: Name of FOREIGN SERVER created to connect
+dat boolean: flag to to migrate data (Default true)
+lower boolean: flag to convert tables and column to lower in PG(DEFAULT false)
+
+-msmov.migrate_by_portion(source_schema,  fdw_name, dat, lower,portion)
+
+msmov.migrate_by_portion:migrate tables constraint, index and views( data will migrate by chunk) 
+
+source_schema text: MSSQL schema  from read objects to migrate
+fdw_name text: Name of FOREIGN SERVER created to connect
+dat boolean: flag to to migrate data (Default true)
+lower boolean: flag to convert tables and column to lower in PG(DEFAULT false)
+portion integer: chunk size (  DEFAULT 500000)
+
+
+msmov.migrate_data(source_schema,  fdw_name, lower):migrate tables data, only after execute msmov.migrate with parameters dat and lower in false ( the data will be migrated all at once) 
+
+source_schema text: MSSQL schema  from read objects to migrate
+fdw_name text: Name of FOREIGN SERVER created to connect
+lower boolean: flag to convert tables and column to lower in PG(DEFAULT false)
+
+-msmov.migrate_data_by_portion(source_schema,  fdw_name,  portion, lower)
+
+msmov.migrate_by_portion:migrate tables data, only after execute msmov.migrate with parameters dat and lower in false ( data will migrate by chunk) 
+
+source_schema text: MSSQL schema  from read objects to migrate
+fdw_name text: Name of FOREIGN SERVER created to connect
+portion integer: chunk size (  DEFAULT 500000)
+lower boolean: flag to convert tables and column to lower in PG(DEFAULT false)
+
+
+
+
+
+
+Principals Tables:
+TABLE msmov.error_table :Error on migration process
+TABLE msmov.data_imported_table: Number of tuples migrate by tables
+
+
+USAGE:
+migrate all:
+--select msmov.migrate('dbo',  'mssql', true, true);
+migrate only structure:
+--select msmov.migrate('dbo', , 'mssql', false, true);
+migrate all, but load data in chunk 20000 tuples:
+--select msmov.migrate_by_portion('dbo',  'mssql', true, true,20000)
+
+EXAMPLE:
+
+mov_sql=# CREATE EXTENSION tds_fdw;
+
+
+mov_sql=#CREATE SERVER mssql6
+   FOREIGN DATA WRAPPER tds_fdw
+  OPTIONS (database 'sakila',port '1433',servername 'MSSQLIP',tds_version '7.1');
+
+mov_sql=# CREATE USER MAPPING  
+   FOR postgres
+   SERVER mssql6
+  OPTIONS (password '12345678',username 'prueba');
+
+mov_sql=# CREATE EXTENSION msmov;
+
+  
+mov_sql=# select msmov.migrate('dbo',  'mssql6', true, true)
+
+  
+mov_sql=# \dn
+Listado de esquemas
+ Nombre  |  Dueño   
+---------+----------
+ msmov   | postgres
+ public  | postgres
+ dbo     | postgres
+(3 filas)
+
+
+
+--see the error
+mov_sql=# select  command, error from msmov.error_table ;
+-[ RECORD 1 ]---------------------------------------------------------------------------------------------------------------------------------------------
+command |                                                                                                                                                 +
+        | --                                                                                                                                              +
+        | -- View structure for view customer_list                                                                                                        +
+        | --                                                                                                                                              +
+        |                                                                                                                                                 +
+        | CREATE VIEW customer_list                                                                                                                       +
+        | AS                                                                                                                                              +
+        | SELECT cu.customer_id AS ID,                                                                                                                    +
+        |        cu.first_name + ' ' + cu.last_name AS name,                                                                                              +
+        |        a.address AS address,                                                                                                                    +
+        |        a.postal_code AS zip_code,                                                                                                               +
+        |            a.phone AS phone,                                                                                                                    +
+        |            city.city AS city,                                                                                                                   +
+        |            country.country AS country,                                                                                                          +
+        |            case when cu.active=1 then 'active' else '' end AS notes,                                                                            +
+        |            cu.store_id AS SID                                                                                                                   +
+        | FROM customer AS cu JOIN address AS a ON cu.address_id = a.address_id JOIN city ON a.city_id = city.city_id                                     +
+        |         JOIN country ON city.country_id = country.country_id                                                                                    +
+        | 
+error   | 42883-el operador no existe: character varying + unknown-
+-[ RECORD 2 ]---------------------------------------------------------------------------------------------------------------------------------------------
+command | --                                                                                                                                              +
+        | -- View structure for view film_list                                                                                                            +
+        | --                                                                                                                                              +
+        |                                                                                                                                                 +
+        | CREATE VIEW film_list                                                                                                                           +
+        | AS                                                                                                                                              +
+        | SELECT film.film_id AS FID,                                                                                                                     +
+        |        film.title AS title,                                                                                                                     +
+        |        film.description AS description,                                                                                                         +
+        |        category.name AS category,                                                                                                               +
+        |        film.rental_rate AS price,                                                                                                               +
+        |            film.length AS length,                                                                                                               +
+        |            film.rating AS rating,                                                                                                               +
+        |            actor.first_name+' '+actor.last_name AS actors                                                                                       +
+        | FROM category LEFT JOIN film_category ON category.category_id = film_category.category_id LEFT JOIN film ON film_category.film_id = film.film_id+
+        |         JOIN film_actor ON film.film_id = film_actor.film_id                                                                                    +
+        |         JOIN actor ON film_actor.actor_id = actor.actor_id                                                                                      +
+        | 
+error   | 42883-el operador no existe: character varying + unknown-
+
+
+
+--see the data migrate by tables
+mov_sql=# select  tab,cnt from msmov.data_imported_table ;
+         tab       |  cnt  
+-------------------+-------
+ dbo.actor         |   200
+ dbo.address       |   603
+ dbo.category      |    16
+ dbo.city          |   600
+ dbo.country       |   109
+ dbo.customer      |   599
+ dbo.film          |  1000
+ dbo.film_actor    |  5462
+ dbo.film_category |  1000
+ dbo.film_text     |     0
+ dbo.inventory     |  4581
+ dbo.language      |     6
+ dbo.payment       | 16049
+ dbo.rental        | 16044
+ dbo.staff         |     2
+ dbo.store         |     2
+ dbo.T             |     1
+ dbo.tabla1        |     2
+
+----migrate dbo schema by portion and schema and data separate)
+
+select msmov.migrate('dbo', 'mssql',false,false)
+
+select msmov.migrate_data_by_portion('dbo', 'mssql',10000,true)
+
+
+
+----TESTED with  MSSQL 2008,2012,2016 and the following data types
+
+bit
+smallint
+tinyint
+int
+bigint
+decimal
+numeric
+money
+smallmoney
+float
+real
+date
+datetime
+datetime2
+smalldatetime
+timestamp
+datetimeoffset
+time
+char
+nchar
+varchar
+nvarchar
+text
+ntext
+binary
+varbinary
+image
+xml
+
+
+Anthony Sotolongo
+asotolongo@gmail.com
