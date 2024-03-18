@@ -1,6 +1,6 @@
 ## msmov
 
-msmov is a PostgreSQL module to migrate from MSSQL to PostgreSQL using  foreign data wrapper `tds_fdw``, this module is composed of two components (schemas):
+msmov is a PostgreSQL module to migrate from MSSQL to PostgreSQL using  foreign data wrapper `tds_fdw``, this module is composed of two components (schemas) :
 
 * msmov function:  Functions to perform the migration from MSSQL (schema msmov)
 * mssql function and operators:  Functions and operator with MSSQL compatibility (schema mssql)
@@ -43,16 +43,20 @@ MSSQL msmsql_user reqiure read access to catalog's views and table(sys and infor
 
 In PostgreSQL, the user required  privileges to create PostgreSQL schemas
 
-It recommendable add `mssql` to your database`s `search_path`, to add the functions and operators from mssql schema,  for example:
+
+
+It recommendable add `mssql` to your database's `search_path`, to add the functions and operators from mssql schema,  for example:
 
 
 ```
 ALTER DATABASE pgdatabase SET search_path = public,mssql, "$user";
 ```
 
+Load in your database the scripts from [mssql](scripts/mssql_functions.sql) and [msmov](scripts/create_msmov.sql)
+
 ### Main functions and tables
 
-Inside the `msmov`` schema you can find the following functions:
+Inside the `msmov` schema you can find the following functions:
 
 * msmov.estimation_analysis ('name_of_foreign_server'): Function to get an analysis and cost estimation, it is mandatory to use this function first because it initializes some required objects. 
 
