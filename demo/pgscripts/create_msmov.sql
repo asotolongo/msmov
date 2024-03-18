@@ -1,0 +1,991 @@
+create schema msmov;
+CREATE TABLE msmov.data_imported_table (
+    id text,
+    date_time timestamp without time zone,
+    tab text,
+    cnt integer
+);
+
+
+
+CREATE TABLE msmov.error_table (
+    id text,
+    date_time timestamp without time zone,
+    command text,
+    error text
+);
+
+
+CREATE OR REPLACE FUNCTION msmov.create_ftables(source_schema text, fdw_name text, tab_except text default null) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     except_list text := '';
+     BEGIN
+        BEGIN    
+                command:= 'DROP SCHEMA IF EXISTS _'||$1||' CASCADE' ;
+		EXECUTE command;
+		command:= 'DROP SCHEMA IF EXISTS '||$1||' CASCADE' ;
+		EXECUTE command;
+                command:= 'CREATE SCHEMA _'||$1 ;
+		EXECUTE command;
+		command:= 'CREATE SCHEMA '||$1 ;
+		EXECUTE command;
+		
+	    --check except tables
+	    if $3 is not null then 
+	       except_list:= ' EXCEPT ('||$3||') ';
+	    end if;
+	
+
+		command:= 'IMPORT FOREIGN SCHEMA "'||$1|| '" '|| except_list ||' FROM SERVER '||$2|| ' INTO _'||$1 || ' OPTIONS (import_default ''true'', import_not_null ''true'');';
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+                        RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        --RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       SELECT count(*) into cnt from information_schema.foreign_tables  WHERE  foreign_table_schema='_'||$1;
+       RAISE NOTICE 'Create  % FOREIGN tables in schema _%, corresponding to tables from MSSQL schema %', cnt,$1,$1;
+       RETURN cnt;
+     END;	
+     $_$;
+     
+     
+
+
+CREATE OR REPLACE  FUNCTION msmov.create_tables_from_ft(from_schema text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        FOR tab IN SELECT foreign_table_name FROM Information_schema.foreign_tables where foreign_table_schema='_'||lower($1) LOOP
+                RAISE NOTICE 'CREATING  TABLE: %.%',$1,tab; 
+		command:= 'CREATE TABLE  '||$1||'."'||tab||'" (LIKE _'||$1||'."'||tab||'")';
+		BEGIN
+		EXECUTE command;
+		EXCEPTION
+			WHEN SQLSTATE '42P07' THEN
+			RAISE NOTICE '%', command;
+			GET STACKED DIAGNOSTICS men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+			INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+			RAISE NOTICE 'Table %  exist ',$1||'.'||tab;
+			cnt:=cnt-1;
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        cnt:=cnt-1;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+		END;
+		cnt:=cnt+1;	 
+
+       END LOOP; 
+       RAISE NOTICE 'TOTAL TABLES CREATED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$;
+
+CREATE OR REPLACE  FUNCTION msmov.import_data_one_table(from_schema text,tab text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     total bigint;
+     BEGIN
+      
+        RAISE NOTICE 'DELETING DATA FROM TABLE: %.%',$1,$2;  
+        command := 'TRUNCATE '|| $1||'."'||$2||'"'; 
+        EXECUTE command;
+        RAISE NOTICE 'IMPORTING DATA IN TABLE: %.%',$1,$2; 
+		command:= 'INSERT INTO '|| $1||'."'||$2||'" SELECT *  FROM _'||$1||'."'||$2||'"';
+		BEGIN
+				EXECUTE command;
+                command:= 'SELECT count(*)  FROM '||$1||'."'||$2||'"';
+                EXECUTE command into total ;
+                RAISE NOTICE 'TABLE DATA: %, % ROWS',$1||'.'||$2, total;
+                INSERT INTO msmov.data_imported_table (id,date_time,tab, cnt) VALUES ($1,current_timestamp::timestamp without time zone ,$1||'.'||$2, total);
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--cnt:=cnt-1;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+		END;
+		cnt:=cnt+1;	 
+
+ 
+       RAISE NOTICE 'TOTAL DATA TABLE IMPORTED: %',total; 
+       RETURN total;
+     END;	
+     $_$;
+     
+     
+CREATE OR REPLACE FUNCTION msmov.create_ftpkey(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.p_keys';
+                EXECUTE command;
+                command:= 'CREATE  FOREIGN TABLE _'||$1||'.p_keys(tab text, pk text  ) server '|| $2 ||' options ( QUERY ''SELECT KU.table_name as tab,column_name as pk
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
+INNER JOIN     INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
+          ON TC.CONSTRAINT_TYPE = ''''PRIMARY KEY'''' AND
+             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
+ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION'')';
+                --RAISE NOTICE '%', command;
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;
+
+
+
+CREATE OR REPLACE FUNCTION msmov.import_pk_tables(target_schema text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab record;
+     tmp text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        command := 'SELECT  tab, string_agg(''"''||pk||''"'','','') as pk FROM _'||$1||'.p_keys group by 1';
+        FOR tab IN EXECUTE command  LOOP
+                RAISE NOTICE 'IMPORTING PRIMARY KEY IN TABLE %', tab.tab; 
+                command := 'ALTER TABLE '||$1||'."'||tab.tab||'" ADD PRIMARY KEY ('|| tab.pk ||')';
+                BEGIN
+                EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        cnt:=cnt-1;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+		END;
+		cnt:=cnt+1;	 
+
+       END LOOP; 
+       RAISE NOTICE 'TOTAL PKS  IMPORTED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$;
+    
+
+
+CREATE OR REPLACE FUNCTION msmov.create_ftukey(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.u_keys';
+                EXECUTE command;
+		command:= 'CREATE  FOREIGN TABLE _'||$1||'.u_keys(tab text, uname text, col text  ) server '|| $2 ||' options ( query ''SELECT KU.table_name as tab,ku.CONSTRAINT_NAME uname,column_name as col
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
+INNER JOIN     INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
+          ON TC.CONSTRAINT_TYPE = ''''UNIQUE'''' AND
+             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
+ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION'')';
+                --RAISE NOTICE '%', command;
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;
+
+
+CREATE OR REPLACE FUNCTION msmov.import_uk_tables(target_schema text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab record;
+     tmp text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     begin
+	    command := 'CREATE TEMP TABLE uk as SELECT * FROM _'||$1||'.u_keys';
+        EXECUTE command; 
+        command := 'SELECT tab,uname, string_agg(''"''||col||''"'','','') as col FROM uk group by 1,2';
+        FOR tab IN EXECUTE command  LOOP
+                tmp:= 'ALTER TABLE '||$1||'."'||tab.tab||'" ADD CONSTRAINT "'||tab.uname||'" UNIQUE ('||tab.col||')';
+         
+                command :=  tmp;
+                BEGIN
+                RAISE NOTICE 'IMPORTING UNIQUE KEY IN TABLE %', tab.tab;
+                EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        cnt:=cnt+1;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+
+
+		END;
+		cnt:=cnt+1;	 
+
+       END LOOP; 
+       drop table uk;
+       RAISE NOTICE 'TOTAL UNIQUES  IMPORTED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$;
+    
+ 
+
+CREATE OR REPLACE FUNCTION msmov.create_ftfkey(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN   
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.f_keys';
+                EXECUTE command;
+		command:= 'CREATE  FOREIGN TABLE _'||$1||'.f_keys(tab character varying,fkname character varying,col character varying,
+	tab_ref character varying,tab_ref_col character varying,m character varying,upt character varying,del character varying ) server '|| $2 ||' options ( query ''
+       SELECT TC.table_name as tab, TC.CONSTRAINT_NAME fkname,KU.COLUMN_NAME col,  T.TABLE_NAME tab_ref,  T.COLUMN_NAME tab_ref_col,
+R.MATCH_OPTION m,R.UPDATE_RULE upt,R.DELETE_RULE del
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
+INNER JOIN
+    INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
+          ON TC.CONSTRAINT_TYPE = ''''FOREIGN KEY'''' AND
+             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
+INNER JOIN 
+    INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS as R
+          ON R.CONSTRAINT_NAME=TC.CONSTRAINT_NAME
+INNER JOIN 
+    INFORMATION_SCHEMA.KEY_COLUMN_USAGE as T
+    ON R.UNIQUE_CONSTRAINT_NAME=T.CONSTRAINT_NAME
+       
+ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION
+	'')';
+                --RAISE NOTICE '%', command;
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;
+
+
+
+
+CREATE OR REPLACE FUNCTION msmov.import_fk_tables(target_schema text, tpy text DEFAULT 'NO ACTION'::text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab record;
+     tmp text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     begin
+
+        command := 'CREATE TEMP TABLE fk as SELECT * FROM _'||$1||'.f_keys';
+        EXECUTE command;
+        command := 'SELECT  distinct tab, fkname, string_agg( distinct ''"''||col||''"'','','') as col
+                    ,tab_ref,string_agg( distinct ''"''||tab_ref_col||''"'','','') as tab_ref_col, m, upt,del  FROM fk group by tab ,fkname,tab_ref, m, upt,del ';
+        FOR tab IN EXECUTE command  LOOP
+                tmp:='ALTER TABLE '||$1||'."'||tab.tab||'" ADD CONSTRAINT "'||tab.fkname||'" FOREIGN KEY ('||tab.col||') REFERENCES '||$1||'."'||tab.tab_ref||'" ('||tab.tab_ref_col||') MATCH '||tab.m||' ON UPDATE '||tab.upt||' ON DELETE '||tab.del ;
+                command :=  tmp;
+                              
+                --RAISE NOTICE '%', command; 
+                BEGIN
+                  RAISE NOTICE 'IMPORTING FK IN TABLE %', tab.tab;
+                  EXECUTE command;
+		  EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        cnt:=cnt-1;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+
+
+
+		END;
+		cnt:=cnt+1;	 
+
+       END LOOP; 
+       drop table fk;
+       RAISE NOTICE 'TOTAL FKS  IMPORTED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$;
+
+
+
+CREATE OR REPLACE FUNCTION msmov.create_ftckey(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN    
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.c_keys';
+                EXECUTE command;
+		command:= 'CREATE  FOREIGN TABLE _'||$1||'.c_keys(tab text, cname text, clause text  ) server '|| $2 ||' options ( query ''select U.TABLE_NAME tab ,  C.CONSTRAINT_NAME cname ,C.CHECK_CLAUSE clause from INFORMATION_SCHEMA.CHECK_CONSTRAINTS as C
+INNER JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE as U 
+      ON C.CONSTRAINT_NAME=U.CONSTRAINT_NAME'')';
+                --RAISE NOTICE '%', command;
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;    
+
+CREATE OR REPLACE FUNCTION msmov.import_ck_tables(target_schema text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab record;
+     tmp text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        command := 'SELECT distinct * FROM _'||$1||'.c_keys  ';
+        FOR tab IN EXECUTE command  LOOP
+                        tmp:='ALTER TABLE '||$1||'."'||tab.tab||'" ADD CONSTRAINT '||tab.cname||' CHECK '||replace(replace(tab.clause,'[','"'),']','"');
+                        command :=  tmp;
+		--RAISE NOTICE '%', command; 
+			BEGIN
+                        RAISE NOTICE 'IMPORTING CHECK IN TABLE %', tab.tab;
+			EXECUTE command;
+			EXCEPTION
+				WHEN OTHERS THEN
+				RAISE NOTICE 'command: %', command;
+				GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                                cnt:=cnt-1;
+                                INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+				RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+
+			END;
+			cnt:=cnt+1;
+
+       END LOOP; 
+       RAISE NOTICE 'TOTAL CHECKS CONSTRAINTS  IMPORTED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$;    
+--SELECT msmov.import_ck_tables('dbo');
+
+
+CREATE OR REPLACE FUNCTION msmov.create_ftindex(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.index_keys';
+                EXECUTE command;
+                command:= 'CREATE  FOREIGN TABLE _'||$1||'.index_keys(tab character varying,iname character varying,col character varying,filter int,
+	filter_def character varying ) server '|| $2 ||' options ( query ''SELECT 
+      t.name tab,
+     ind.name iname,
+     col.name col,
+     ind.has_filter filter,
+     ind.filter_definition filter_def
+FROM 
+     sys.indexes ind 
+INNER JOIN 
+     sys.index_columns ic ON  ind.object_id = ic.object_id and ind.index_id = ic.index_id 
+INNER JOIN 
+     sys.columns col ON ic.object_id = col.object_id and ic.column_id = col.column_id 
+INNER JOIN 
+     sys.tables t ON ind.object_id = t.object_id 
+WHERE 
+     ind.is_primary_key = 0 
+     AND ind.is_unique = 0 
+     AND ind.is_unique_constraint = 0 
+     AND t.is_ms_shipped = 0 
+ORDER BY 
+     t.name, ind.name, ind.index_id, ic.index_column_id'')';
+                --RAISE NOTICE '%', command;
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$; 
+
+
+CREATE OR REPLACE FUNCTION msmov.import_index_tables(target_schema text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab record;
+     tmp text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        command := 'SELECT tab,iname,string_agg(''"''||col||''"'','','') as col,filter,filter_def FROM _'||$1||'.index_keys group by 1,2,4,5';
+        FOR tab IN EXECUTE command  LOOP
+                command := 'CREATE INDEX '||tab.iname||' ON '||$1||'."'||tab.tab||'" ('||tab.col||')';
+                IF tab.filter=1 THEN
+                 command:=command|| 'WHERE '||replace(replace(tab.filter_def,'[','"'),']','"');
+                END IF;
+                RAISE NOTICE 'IMPORTING INDEX % IN TABLE %',tab.iname, tab.tab; 
+                BEGIN
+                EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        cnt:=cnt-1;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+		END;
+		cnt:=cnt+1;	 
+
+       END LOOP; 
+       RAISE NOTICE 'TOTAL INDEX IMPORTED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$; 
+    
+
+CREATE OR REPLACE FUNCTION msmov.create_ftviews(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.views';
+                EXECUTE command;
+                command:= 'CREATE  FOREIGN TABLE _'||$1||'.views(tab character varying,  ddl character varying  ) server '|| $2 ||' options ( query ''
+                SELECT table_name tab, VIEW_DEFINITION ddl FROM INFORMATION_SCHEMA.VIEWS'')';
+                --RAISE NOTICE '%', command;
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;
+     
+CREATE OR REPLACE FUNCTION msmov.import_views(target_schema text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab record;
+     tmp text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        command := 'SELECT * FROM _'||$1||'.views';
+        FOR tab IN EXECUTE command  LOOP
+                RAISE NOTICE 'IMPORTING VIEW: %', tab.tab;
+                command := 'set search_path ='||lower($1)||','||current_setting ('search_path')||'; ' ||tab.ddl ||';' ;
+                BEGIN
+                EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        cnt:=cnt-1;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+		END;
+		cnt:=cnt+1;
+                set search_path to default;	 
+
+       END LOOP; 
+       set search_path to default;
+       RAISE NOTICE 'TOTAL VIEWS  IMPORTED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$;      
+     
+CREATE OR REPLACE FUNCTION msmov.create_ftdomains(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.domains';
+                EXECUTE command;
+                command:= 'CREATE  FOREIGN TABLE _'||$1||'.domains(tab character varying,  typ_base character varying,
+                      max_length  int, precision int,scale int,  is_nullable int,  is_table_type int    ) server '|| $2 ||' options ( query ''
+                SELECT 
+					o.name as tab, (select i.name from sys.types as i where o.system_type_id=i.system_type_id and i.name<>o.name) as typ_base,o.max_length ,o.[precision] ,o.scale,o.is_nullable,is_table_type 
+					FROM sys.types o
+					WHERE o.is_user_defined = 1'')';
+                --RAISE NOTICE '%', command;
+               
+
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;     
+     
+     
+CREATE  TYPE msmov.estimation_typ AS (details text, comments text, cost numeric);
+CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SETOF msmov.estimation_typ 
+ LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     result msmov.estimation_typ;
+     BEGIN
+	   BEGIN
+                --create the FOREIGN TABLES  in msmov schema to get the data estimation
+		        --version
+		        command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_version' ;
+		        EXECUTE format(command);
+		        command:= 'CREATE  FOREIGN TABLE msmov.mssql_version (version varchar)  SERVER %s OPTIONS 
+                          ( QUERY ''SELECT @@version as version'')';
+                EXECUTE format(command,$1);
+               
+                --size
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_db_size' ;
+		        EXECUTE format(command);
+		        command:= 'CREATE  FOREIGN TABLE msmov.mssql_db_size (database_name varchar,database_size varchar)  SERVER %s OPTIONS 
+                          ( QUERY ''SELECT    DB_NAME() AS database_name,    CAST(SUM(  CAST( (size * 8.0/1024) AS DECIMAL(15,2) )  ) AS VARCHAR(20)) AS database_size FROM sys.database_files'')';
+                EXECUTE format(command,$1);
+               
+                --schemas
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_schemas' ;
+		        EXECUTE format(command);
+		        command:= 'CREATE FOREIGN TABLE msmov.mssql_schemas ( schema_name varchar, schema_id integer,	schema_owner varchar) 	SERVER %s OPTIONS 
+                         (query ''SELECT s.name as schema_name,  s.schema_id, u.name as schema_owner FROM sys.schemas s   inner join sys.sysusers u   on u.uid = s.principal_id
+                          WHERE s.schema_id < 1000 and s.name not in  (''''guest'''',''''INFORMATION_SCHEMA'''',''''sys'''') order by s.name'', row_estimate_method ''showplan_all'' ) ';
+                EXECUTE format(command,$1);  
+                
+                --linked servers, is_linekd=1
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_linked_servers' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_linked_servers ( server_name varchar,	data_source varchar ) SERVER %s OPTIONS 
+                          (query ''SELECT name as server_name,data_source FROM sys.servers WHERE is_linked = 1'' , row_estimate_method ''showplan_all'' )';
+                EXECUTE format(command,$1);
+                --tables
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_tables' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_tables ( "TABLE_CATALOG" varchar, 	"TABLE_SCHEMA" varchar, "TABLE_NAME" varchar,"TABLE_TYPE" varchar ) SERVER %s OPTIONS 
+                          (query ''SELECT  * FROM INFORMATION_SCHEMA.TABLES WHERE  TABLE_TYPE = ''''BASE TABLE'''' '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                --views
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_views' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_views ( "TABLE_CATALOG" varchar, 	"TABLE_SCHEMA" varchar, "TABLE_NAME" varchar,"TABLE_TYPE" varchar ) SERVER %s OPTIONS 
+                          (query ''SELECT  * FROM INFORMATION_SCHEMA.TABLES WHERE  TABLE_TYPE = ''''VIEW'''' '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                
+                --views
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_indexes' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_indexes ( table_name varchar, 	index_name varchar ) SERVER %s OPTIONS 
+                          (query ''SELECT  t.name table_name,  ind.name index_name FROM      sys.indexes ind INNER JOIN 
+                                   sys.index_columns ic ON  ind.object_id = ic.object_id and ind.index_id = ic.index_id INNER JOIN 
+                                   sys.columns col ON ic.object_id = col.object_id and ic.column_id = col.column_id INNER JOIN 
+                                   sys.tables t ON ind.object_id = t.object_id  
+                                   WHERE ind.is_primary_key = 0 AND ind.is_unique = 0  AND ind.is_unique_constraint = 0  AND t.is_ms_shipped = 0 
+                                    ORDER BY t.name, ind.name, ind.index_id, ic.index_column_id '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                --sequences
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_sequences' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_sequences ( "Schema" varchar, sequence_name varchar,current_value varchar,start_value varchar,	increment varchar,
+                                                                      is_cycling varchar,	system_type varchar,user_type varchar ) SERVER %s OPTIONS 
+                          (query ''SELECT     SCHEMA_NAME(schema_id) AS "Schema",    name as sequence_name,    CAST (current_value as  varchar) as current_value,    
+                                    CAST (start_value as  varchar) as start_value ,    CAST (increment as  varchar) as increment,    is_cycling,    
+                                    TYPE_NAME(system_type_id) AS system_type,    TYPE_NAME(user_type_id) AS user_type FROM sys.sequences ORDER BY name; '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                --synonyms
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_synonyms' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_synonyms ( syn_name varchar, object_ref varchar) SERVER %s OPTIONS 
+                          (query ''SELECT  name as syn_name ,base_object_name as object_ref FROM sys.synonyms '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                --procedures
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_procedures' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_procedures ( routine_schema varchar, routine_name varchar, routine_definition varchar) SERVER %s OPTIONS 
+                          (query ''SELECT ROUTINE_SCHEMA as routine_schema ,ROUTINE_NAME as routine_name,ROUTINE_DEFINITION as routine_definition
+                     FROM INFORMATION_SCHEMA.routines  WHERE ROUTINE_TYPE = ''''PROCEDURE '''' '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                --functions
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_functions' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_functions ( routine_schema varchar, routine_name varchar, routine_definition varchar) SERVER %s OPTIONS 
+                          (query ''SELECT ROUTINE_SCHEMA as routine_schema ,ROUTINE_NAME as routine_name,ROUTINE_DEFINITION as routine_definition
+                     FROM INFORMATION_SCHEMA.routines  WHERE ROUTINE_TYPE = ''''FUNCTION '''' '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                --table triggers
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_triggers' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_triggers ( trigger_name varchar, table_schema varchar, table_name varchar,isupdate int,
+                                                                       isdelete int,isinsert int,isafter int,isinsteadof int,disabled int,trigger_code varchar) SERVER %s OPTIONS 
+                          (query ''SELECT  o.name AS trigger_name ,s.name AS table_schema,OBJECT_NAME(parent_obj) AS table_name ,OBJECTPROPERTY( o.id, ''''ExecIsUpdateTrigger'''') AS isupdate
+                                          ,OBJECTPROPERTY( o.id, ''''ExecIsDeleteTrigger'''') AS isdelete ,OBJECTPROPERTY( o.id, ''''ExecIsInsertTrigger'''') AS isinsert 
+                                          ,OBJECTPROPERTY( o.id, ''''ExecIsAfterTrligger'''') AS isafter,OBJECTPROPERTY( o.id, ''''ExecIsInsteadOfTrigger'''') AS isinsteadof
+                                          ,OBJECTPROPERTY(o.id, ''''ExecIsTriggerDisabled'''') AS [disabled] ,sysComments.text as trigger_code
+			                              FROM sysobjects o 
+                                          INNER JOIN sysusers ON o.uid = sysusers.uid 
+			                              INNER JOIN sys.tables t ON o.parent_obj = t.object_id 
+                                          INNER JOIN sys.schemas s ON t.schema_id = s.schema_id 
+                                          INNER JOIN   sys.sysComments ON   o.ID = sysComments.ID 
+                                          WHERE o.type = ''''TR''''  '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                --data types
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_datatypes' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_datatypes ( typ varchar, dat_typ varchar ) SERVER %s OPTIONS 
+                          (query '' SELECT DISTINCT ''''TYPE BASE'''' as typ,  DATA_TYPE as dat_typ FROM INFORMATION_SCHEMA.COLUMNS
+						             UNION 
+						            SELECT DISTINCT ''''CUSTOM TYPE'''' as typ, DOMAIN_NAME as dat_typ FROM INFORMATION_SCHEMA.COLUMNS where DOMAIN_NAME IS NOT NULL
+						           ORDER BY 1 DESC  '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+               --database triggers
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_database_triggers' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_database_triggers ( name varchar, parent_class_desc varchar, type_desc varchar, definition varchar ) SERVER %s OPTIONS 
+                          (query '' SELECT tr.name,tr.parent_class_desc, tre.type_desc,  m.definition  FROM sys.triggers tr 
+									JOIN sys.sql_modules m  ON tr.object_id =m.object_id 
+									JOIN sys.trigger_events tre ON tr.object_id = tre.object_id 
+									WHERE parent_class =0 AND  parent_class_desc =''''DATABASE''''  '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+                              
+                        
+                --results of analysis
+                --results is composite type: msmov.estimation_typ
+                --version
+                EXECUTE format('SELECT left(version,50) FROM msmov.mssql_version') into result.details;
+                result.details:=  'Version: '||result.details;
+                return next result;
+                --database name
+                EXECUTE format('SELECT  database_name FROM msmov.mssql_db_size') into result.details;
+                result.details:='Database name: '||result.details;
+                return next result; 
+                --database size
+                EXECUTE format('SELECT  database_size FROM msmov.mssql_db_size') into result.details;
+                result.cost:=((result.details)::numeric/100); --cost of size: 1 for each 100MB 
+                result.details:='Database size: '||result.details;
+                return next result;
+                --schemas 
+                EXECUTE format('SELECT string_agg(schema_name,'','') FROM msmov.mssql_schemas') into result.details;
+                result.details:='Database schemas: '||result.details;
+                result.cost=null; 
+                return next result;
+                --linked server                 
+                EXECUTE format('SELECT count(*)::text FROM msmov.mssql_linked_servers') into result.details;
+                result.comments:= CASE WHEN result.details<>'0' THEN 'You can use FDW extension to simulate linked server'  ELSE '' end;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*2  ELSE 0 END;  --cost of linked server: 1 for each 1 linked server 
+                result.details:='Linled Servers : '||result.details;
+                return next result;
+                --tables                 
+                EXECUTE format('SELECT count(*)::text as tab_count,string_agg("TABLE_NAME",'','') as tab_list,null  FROM msmov.mssql_tables') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*1  ELSE 0 END;  --cost of table: 1 for table 
+                result.details:='Tables : '||result.details;
+                return next result;
+                --views                 
+                EXECUTE format('SELECT count(*)::text as tab_count,string_agg("TABLE_NAME",'','') as tab_list,null  FROM msmov.mssql_views') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*3  ELSE 0 END;  --cost of view: 1 for table  
+                result.details:='Views : '||result.details;
+                return next result;
+                --indexes                 
+                EXECUTE format('SELECT count(*)::text as idx_count,string_agg(index_name,'','') as idx_list,null  FROM msmov.mssql_indexes') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*2  ELSE 0 END;  --cost of indexes, 2 for each index
+                result.details:='Indexes : '||result.details;
+                return next result;
+                --sequences                 
+                EXECUTE format('SELECT count(*)::text as seq_count,string_agg(sequence_name,'','') as idx_list,null  FROM msmov.mssql_sequences') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*2  ELSE 0 END;  --cost of sequences, 2 for each sequence
+                result.details:='Sequences : '||result.details;
+                return next result;
+                --synonyms                 
+                EXECUTE format('SELECT count(*)::text as syn_count,string_agg(syn_name,'','') as idx_list,null  FROM msmov.mssql_synonyms') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*2  ELSE 0 END;  --cost of synonyms, 2 for each synonyms
+                result.details:='Synonyms : '||result.details;
+                return next result;
+                --procedures                 
+                EXECUTE format('SELECT count(*)::text as func_count,string_agg(routine_name,'','') as idx_list,null  FROM msmov.mssql_procedures') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*7  ELSE 0 END;  --cost of procedures, 7 for each procedures
+                result.details:='Procedures : '||result.details;
+                return next result;
+                --functions                 
+                EXECUTE format('SELECT count(*)::text as func_count,string_agg(routine_name,'','') as idx_list,null  FROM msmov.mssql_functions') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*7  ELSE 0 END;  --cost of procedures, 7 for each procedures
+                result.details:='Functions : '||result.details;
+                return next result;
+                --table triggers                 
+                EXECUTE format('SELECT count(*)::text as tri_count,string_agg(trigger_name,'','') as idx_list,null  FROM msmov.mssql_triggers') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*7  ELSE 0 END;  --cost of triggers, 7 for each triggers
+                result.details:='Table Triggers : '||result.details;
+                return next result;
+                --data types                 
+                EXECUTE format('SELECT count(*)::text as tri_count,string_agg(dat_typ,'','') FILTER (WHERE typ=''TYPE BASE'' )||'','' || coalesce(string_agg(dat_typ,'','') FILTER (WHERE typ=''CUSTOM TYPE'' ),'''')  as dat_typ_list,null  FROM msmov.mssql_datatypes') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*1  ELSE 0 END;  --cost of data types, 1 for each data types
+                result.details:='Data Types : '||result.details;
+                return next result;
+                --database triggers                 
+                EXECUTE format('SELECT count(DISTINCT name)::text as tri_count,string_agg(DISTINCT name,'','')  FROM msmov.mssql_database_triggers group by name') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*7  ELSE 0 END;  --cost of database trigger, 7 for each data types
+                result.details:='Database Trigger : '||result.details;
+                return next result;
+              
+		       --RAISE NOTICE '%', command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+     return;
+	     
+     END;	
+     $_$;
+ 
+
+       CREATE OR REPLACE FUNCTION msmov.create_ftsequences(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.sequences';
+                EXECUTE command;
+                command:= 'CREATE  FOREIGN TABLE _'||$1||'.sequences("Schema" varchar, sequence_name varchar,current_value varchar,start_value varchar,	increment varchar,
+                                                                      is_cycling varchar,	system_type varchar,user_type varchar   ) server '|| $2 ||' options ( query ''
+                SELECT     SCHEMA_NAME(schema_id) AS "Schema",    name as sequence_name,    CAST (current_value as  varchar) as current_value,    
+                                    CAST (start_value as  varchar) as start_value ,    CAST (increment as  varchar) as increment,    is_cycling,    
+                                    TYPE_NAME(system_type_id) AS system_type,    TYPE_NAME(user_type_id) AS user_type FROM sys.sequences ORDER BY name;'')';
+                --RAISE NOTICE '%', command;
+       
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;    
+    
+
+CREATE OR REPLACE FUNCTION msmov.import_sequences(target_schema text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab record;
+     tmp text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        command := 'SELECT * FROM _'||$1||'.sequences ';
+        FOR tab IN EXECUTE command  LOOP
+                command := 'CREATE SEQUENCE '||tab."Schema"||'.'||tab.sequence_name||' AS '||tab.system_type||' INCREMENT BY '|| tab.increment ||
+                             ' START WITH ' ||tab.start_value|| CASE WHEN tab.is_cycling<>'0' THEN ' CYCLE ' ELSE ' NO CYCLE;' END;
+            
+            
+                RAISE NOTICE 'IMPORTING SEQUENCE % ',tab.sequence_name; 
+                BEGIN
+                EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        cnt:=cnt-1;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+		END;
+		cnt:=cnt+1;	 
+
+       END LOOP; 
+       RAISE NOTICE 'TOTAL SEQUENCE IMPORTED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$;       
+
+CREATE OR REPLACE FUNCTION msmov.create_ftsynonyms(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.synonyms';
+                EXECUTE command;
+                command:= 'CREATE  FOREIGN TABLE _'||$1||'.synonyms(syn_name varchar, object_ref  varchar ) server '|| $2 ||' options ( query ''
+                SELECT  name as syn_name ,base_object_name as object_ref FROM sys.synonyms '')';
+                --RAISE NOTICE '%', command;
+               
+
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;      
