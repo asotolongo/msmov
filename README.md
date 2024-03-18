@@ -203,6 +203,49 @@ function=tdsImportSqlServerSchema)
 
 _NOTE: MSSQL 2012 can work, but not tested_
 
+## Errors tips
+
+* DATE issue  due to locale setting differences:
+ Sometimes you can face issues with date format during the data migration, you can solve it using following:
+
+    * Changing temporally the data type
+
+      ```
+      --change data type
+      ALTER TABLE _dbo."name_of_table" ALTER COLUMN data TYPE text ;
+      ALTER TABLE dbo."name_of_table" ALTER COLUMN data TYPE text ;
+      --migrate data
+      --change data type ujsing a transformation
+      ALTER TABLE dbo."name_of_table" ALTER COLUMN data TYPE date using (to_date(data,'Mon DD YYYY HH12:MI:SS:AM') );
+
+      ```
+
+    * Changing locale for freeTDS 
+    Edit the file `/etc/freetds/freetds.conf` adding the following:
+      ```
+      [default]
+      date format = %b %e %Y %I:%M:%S.%z%p
+      ```
+
+* Characters conversions and buffer Issues  
+
+For example: 
+```
+* HV00L-DB-Library error: DB #: 2404, DB Msg: Buffer overflow converting characters from client into server's character set, OS #: 0, OS Msg: Success, Level:
+* HV00L-DB-Library error: DB #: 2403, DB Msg: Some character(s) could not be converted into client's character set.  Unconverted bytes were changed to question marks ('?'), OS #: 0, OS Msg: Success, Level: 4-
+* HV00L-DB-Library error: DB #: 20018, DB Msg: General SQL Server error: Check messages from the SQL Server, OS #: -1, OS Msg: , Level: 16-
+```
+
+These issues are related with the following issues reported in TDS_FDW extension:
+
+* https://github.com/tds-fdw/tds_fdw/issues/103
+* https://github.com/tds-fdw/tds_fdw/issues/351
+* https://github.com/tds-fdw/tds_fdw/issues/289
+* https://github.com/tds-fdw/tds_fdw/issues/136
+
+To solve it you can use another tool(for example  [pgloader](https://github.com/dimitri/pgloader)) to migrate the data of the tables related to these errors
+
+
 ## License
 Permission to use, copy, modify, and distribute this software and its documentation for any purpose, without fee, and without a written agreement is hereby granted, provided that the above copyright notice and this paragraph and the following two paragraphs appear in all copies.
 IN NO EVENT SHALL THE AUTHORS BE LIABLE TO ANY PARTY FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS DOCUMENTATION, EVEN IF THE AUTHORS HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
