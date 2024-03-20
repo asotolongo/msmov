@@ -7,6 +7,11 @@ SELECT sum(cost) FROM msmov.estimation_analysis ('server_mssql_sakila');
 
 --IMPORT TABLES
 SELECT  msmov.create_ftables('dbo','server_mssql_sakila',(SELECT string_agg("TABLE_NAME",',') FROM msmov.mssql_views)); 
+--CHANGE TYPE OF COLUMNS
+INSERT INTO msmov.mssql_columns_type_change (sch,tab,col,typ) VALUES ('dbo','country','country','varchar(100)');
+INSERT INTO msmov.mssql_columns_type_change (sch,tab,col,typ) VALUES ('dbo','country','country_id','int4');
+INSERT INTO msmov.mssql_columns_type_change (sch,tab,col,typ) VALUES ('dbo','city','country_id','int4');
+
 SELECT msmov.create_tables_from_ft('dbo');
 
 

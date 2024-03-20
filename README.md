@@ -1,18 +1,17 @@
 ## msmov
 
-msmov is a PostgreSQL module to facilitate migration from MSSQL to PostgreSQL using  foreign data wrapper `tds_fdw``, this module is composed of two components (schemas) :
+`msmov` is a PostgreSQL module to facilitate migration from MSSQL to PostgreSQL using Foreign Data Wrapper `tds_fdw`, this module is composed of two components (schemas) :
 
 * msmov function:  Functions to perform the migration from MSSQL (schema msmov)
 * mssql function and operators:  Functions and operator with MSSQL compatibility (schema mssql)
 
-To perform the migration can be performed by SQL commands directly from inside PostgreSQL database.
+The migration can be performed by SQL commands directly from the  PostgreSQL database.
 
-msmov can perform estimation for the migration and show the main characteristics and components of your original MSSQL database 
-msmov will migrate tables, constraints, indexes, PKs, FKs, UNIQUES and CHECKS constraints,  sequences, other objects (triggers, functions, procedures, etc) don't be migrate directly but you can get the code.
+`msmov` can make an estimation for the migration and show the main characteristics and components of your original MSSQL database, `msmov` will migrate tables, constraints, indexes, PKs, FKs, UNIQUES and CHECKS constraints,  sequences, other objects (triggers, functions, procedures, etc) don't be migrate directly but you can get the code.
 
 
 ### PREREQUISITES:
-Previous install msmov modules you must install and configure the FDW [`tds_fdw`](https://github.com/tds-fdw/tds_fdw):
+Previous install msmov module you must install and configure the FDW [`tds_fdw`](https://github.com/tds-fdw/tds_fdw):
 
 
 ```
@@ -39,7 +38,7 @@ CREATE USER MAPPING FOR public
 
 ```
 
-MSSQL msmsql_user reqiure read access to catalog's views and table(sys and information_schema schemas)
+MSSQL msmsql_user require read access to catalog's views and table(sys and information_schema schemas)
 
 In PostgreSQL, the user required  privileges to create PostgreSQL schemas
 
@@ -106,6 +105,8 @@ Inside the `msmov`` schema you can find the following tables:
 * msmov.data_imported_table: store the information related to rows migrated using the function: `import_data_one_table`
 * msmov.error_table: store the information related to errors returned using the msmov for migrating
 
+* msmov.mssql_columns_type_change: store the rules of data type changes, the changes will apply when execute the function `msmov.create_tables_from_ft`
+
 ### Use
 ```
 --ESTIMATION and initialitation
@@ -117,14 +118,13 @@ SELECT sum(cost) FROM msmov.estimation_analysis ('server_mssql');
 
 --IMPORT TABLES
 SELECT  msmov.create_ftables('dbo','server_mssql',(select string_agg("TABLE_NAME",',') FROM msmov.mssql_views)); 
+--CHANGE TYPE OF COLUMNS
+INSERT INTO msmov.mssql_columns_type_change (sch,tab,col,typ) VALUES ('dbo','country','country','varchar(100)');
 SELECT msmov.create_tables_from_ft('dbo');
-
 
 
 --IMPORT DATA
 SELECT msmov.import_data_one_table('dbo',"TABLE_NAME") from msmov.mssql_tables ;
-
-
 
 
 --PK
@@ -158,7 +158,7 @@ SELECT msmov.import_sequences('dbo');
 
 -- GENERATE USERS GRANTS, review the output manually, some clauses can be not compatible 
  SELECT * FROM msmov.generate_grants() 
- 
+
 --Stasts update
 ANALYZE VERBOSE;
 
@@ -177,7 +177,7 @@ drop schema msmov cascade ;
 [Migration demo](demo/README.md) (origin database MSSQL 2019, target database: PostgreSQL 15)
 
 ### Compatibility 
-This module was tested with  SQL server version:  2014, 2016, 2017,2019  and the following [data types are allowed](https://github.com/tds-fdw/tds_fdw/blob/master/src/tds_fdw.c#L3126-L3530
+This module was tested with  MSSQL version:  2014, 2016, 2017,2019  and the following [data types are allowed](https://github.com/tds-fdw/tds_fdw/blob/master/src/tds_fdw.c#L3126-L3530
 function=tdsImportSqlServerSchema)
 
 * bit
