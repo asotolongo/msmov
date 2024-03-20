@@ -1,9 +1,9 @@
 This demo is to test the msmov module to migrate from MSSQL to PostgreSQL, using the demo database named: sakila
 
-the version of database origin and target in this demo
+the version of database origin and target in this demo:
 
-MSSQL: 2019
-PostgreSQL: 15
+* MSSQL: 2019
+* PostgreSQL: 15
 
 * Initialize the docker-compose  lab
 ```
@@ -16,18 +16,26 @@ Connect to container database and perform the migration process using SQL`s comm
 `docker-compose exec pg15 /bin/bash -c "su - postgres -c 'psql -d pagila'`
 
 ```
---Estimation and Initialitation
+--ESTIMATION and initialitation
 SELECT * FROM msmov.estimation_analysis ('server_mssql_sakila'); 
 SELECT sum(cost) FROM msmov.estimation_analysis ('server_mssql_sakila'); 
 
+-- GENERATE USERS AND ROLES MEMBERSHIPS, review the output manually, some clauses can be not compatible 
+ SELECT * FROM msmov.generate_users_and_member_roles();
+
 --IMPORT TABLES
-SELECT  msmov.create_ftables('dbo','server_mssql_sakila',(select string_agg("TABLE_NAME",',') FROM msmov.mssql_views)); 
+SELECT  msmov.create_ftables('dbo','server_mssql_sakila',(SELECT string_agg("TABLE_NAME",',') FROM msmov.mssql_views)); 
+--CHANGE TYPE OF COLUMNS
+INSERT INTO msmov.mssql_columns_type_change (sch,tab,col,typ) VALUES ('dbo','country','country','varchar(100)');
+INSERT INTO msmov.mssql_columns_type_change (sch,tab,col,typ) VALUES ('dbo','country','country_id','int4');
+INSERT INTO msmov.mssql_columns_type_change (sch,tab,col,typ) VALUES ('dbo','city','country_id','int4');
+
 SELECT msmov.create_tables_from_ft('dbo');
 
 
 
 --IMPORT DATA
-SELECT "TABLE_NAME",msmov.import_data_one_table('dbo',"TABLE_NAME") from msmov.mssql_tables ;
+SELECT msmov.import_data_one_table('dbo',"TABLE_NAME") FROM msmov.mssql_tables ;
 
 
 
@@ -59,17 +67,26 @@ SELECT msmov.import_views('dbo');
 --Sequences
 SELECT msmov.create_ftsequences('dbo' ,'server_mssql_sakila'); 
 SELECT msmov.import_sequences('dbo'); 
---Stats update
+
+-- GENERATE USERS GRANTS, review the output manually, some clauses can be not compatible 
+ SELECT * FROM msmov.generate_grants();
+
+--Stasts update
 ANALYZE VERBOSE;
 
 --data imported
-SELECT * from msmov.data_imported_table;
---ERRORS
-SELECT * from msmov.error_table;
+SELECT * FROM msmov.data_imported_table;
+--ERRORES
+SELECT * FROM msmov.error_table;
 
 --clean
-drop schema _dbo cascade ;
-drop schema msmov cascade ;
+DROP SCHEMA _dbo cascade ;
+DROP SCHEMA msmov cascade ;
+
+
+
+
+
 
 
 
