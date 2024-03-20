@@ -102,10 +102,10 @@ CREATE OR REPLACE  FUNCTION msmov.create_tables_from_ft(from_schema text) RETURN
        RETURN cnt;
      END;	
      $_$;
-
-CREATE OR REPLACE  FUNCTION msmov.import_data_one_table(from_schema text,tab text) RETURNS integer
-    LANGUAGE plpgsql
-    AS $_$
+CREATE OR REPLACE FUNCTION msmov.import_data_one_table(from_schema text, tab text)
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $_$
      DECLARE
      tab text;
      command text;
@@ -136,16 +136,21 @@ CREATE OR REPLACE  FUNCTION msmov.import_data_one_table(from_schema text,tab tex
 			--cnt:=cnt-1;
 			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
 		END;
-		cnt:=cnt+1;	 
-
+		cnt:=cnt+1;
+    
  
        RAISE NOTICE 'TOTAL DATA TABLE IMPORTED: %',total; 
        RETURN total;
+      EXCEPTION
+	    WHEN OTHERS THEN
+	    GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+	    RAISE NOTICE 'Ignoring table %, no present in your schema % ',$2,$1;      
+	    RETURN 0;
+
      END;	
      $_$;
-     
-     
-CREATE OR REPLACE FUNCTION msmov.create_ftpkey(source_schema text, fdw_name text) RETURNS integer
+
+   CREATE OR REPLACE FUNCTION msmov.create_ftpkey(source_schema text, fdw_name text) RETURNS integer
     LANGUAGE plpgsql
     AS $_$
      DECLARE
@@ -159,11 +164,12 @@ CREATE OR REPLACE FUNCTION msmov.create_ftpkey(source_schema text, fdw_name text
                 command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.p_keys';
                 EXECUTE command;
                 command:= 'CREATE  FOREIGN TABLE _'||$1||'.p_keys(tab text, pk text  ) server '|| $2 ||' options ( QUERY ''SELECT KU.table_name as tab,column_name as pk
-FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
-INNER JOIN     INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
-          ON TC.CONSTRAINT_TYPE = ''''PRIMARY KEY'''' AND
-             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
-ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION'')';
+							FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
+							INNER JOIN     INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
+							          ON TC.CONSTRAINT_TYPE = ''''PRIMARY KEY'''' AND
+							             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
+							WHERE TC.TABLE_SCHEMA ='''''||$1||'''''
+							ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION'')';
                 --RAISE NOTICE '%', command;
 		EXECUTE command;
 		EXCEPTION
@@ -179,6 +185,7 @@ ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION'')';
        RETURN 1;
      END;	
      $_$;
+
 
 
 
@@ -218,7 +225,7 @@ CREATE OR REPLACE FUNCTION msmov.import_pk_tables(target_schema text) RETURNS in
     
 
 
-CREATE OR REPLACE FUNCTION msmov.create_ftukey(source_schema text, fdw_name text) RETURNS integer
+CREATE OR REPLACE FUNCTION msmov.create_ftfkey(source_schema text, fdw_name text) RETURNS integer
     LANGUAGE plpgsql
     AS $_$
      DECLARE
@@ -228,15 +235,27 @@ CREATE OR REPLACE FUNCTION msmov.create_ftukey(source_schema text, fdw_name text
      sqlerror text;
      cnt int :=0;
      BEGIN
-        BEGIN
-                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.u_keys';
+        BEGIN   
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.f_keys';
                 EXECUTE command;
-		command:= 'CREATE  FOREIGN TABLE _'||$1||'.u_keys(tab text, uname text, col text  ) server '|| $2 ||' options ( query ''SELECT KU.table_name as tab,ku.CONSTRAINT_NAME uname,column_name as col
-FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
-INNER JOIN     INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
-          ON TC.CONSTRAINT_TYPE = ''''UNIQUE'''' AND
-             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
-ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION'')';
+		command:= 'CREATE  FOREIGN TABLE _'||$1||'.f_keys(tab character varying,fkname character varying,col character varying,
+											tab_ref character varying,tab_ref_col character varying,m character varying,upt character varying,del character varying ) server '|| $2 ||' options ( query ''
+										       SELECT TC.table_name as tab, TC.CONSTRAINT_NAME fkname,KU.COLUMN_NAME col,  T.TABLE_NAME tab_ref,  T.COLUMN_NAME tab_ref_col,
+										R.MATCH_OPTION m,R.UPDATE_RULE upt,R.DELETE_RULE del
+										FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
+										INNER JOIN
+										    INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
+										          ON TC.CONSTRAINT_TYPE = ''''FOREIGN KEY'''' AND
+										             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
+										INNER JOIN 
+										    INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS as R
+										          ON R.CONSTRAINT_NAME=TC.CONSTRAINT_NAME
+										INNER JOIN 
+										    INFORMATION_SCHEMA.KEY_COLUMN_USAGE as T
+										    ON R.UNIQUE_CONSTRAINT_NAME=T.CONSTRAINT_NAME
+										WHERE TC.TABLE_SCHEMA ='''''||$1||'''''       
+										ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION
+							'')';
                 --RAISE NOTICE '%', command;
 		EXECUTE command;
 		EXCEPTION
@@ -253,6 +272,42 @@ ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION'')';
      END;	
      $_$;
 
+
+CREATE OR REPLACE FUNCTION msmov.create_ftukey(source_schema text, fdw_name text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        BEGIN
+                command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.u_keys';
+                EXECUTE command;
+		command:= 'CREATE  FOREIGN TABLE _'||$1||'.u_keys(tab text, uname text, col text  ) server '|| $2 ||' options ( query ''SELECT KU.table_name as tab,ku.CONSTRAINT_NAME uname,column_name as col
+									FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
+									INNER JOIN     INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
+									          ON TC.CONSTRAINT_TYPE = ''''UNIQUE'''' AND
+									             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
+									WHERE TC.TABLE_SCHEMA ='''''||$1||'''''
+									ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION'')';
+                --RAISE NOTICE '%', command;
+		EXECUTE command;
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+                        RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
+    
+ 
+	END;
+       RETURN 1;
+     END;	
+     $_$;
 
 CREATE OR REPLACE FUNCTION msmov.import_uk_tables(target_schema text) RETURNS integer
     LANGUAGE plpgsql
@@ -311,23 +366,23 @@ CREATE OR REPLACE FUNCTION msmov.create_ftfkey(source_schema text, fdw_name text
                 command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.f_keys';
                 EXECUTE command;
 		command:= 'CREATE  FOREIGN TABLE _'||$1||'.f_keys(tab character varying,fkname character varying,col character varying,
-	tab_ref character varying,tab_ref_col character varying,m character varying,upt character varying,del character varying ) server '|| $2 ||' options ( query ''
-       SELECT TC.table_name as tab, TC.CONSTRAINT_NAME fkname,KU.COLUMN_NAME col,  T.TABLE_NAME tab_ref,  T.COLUMN_NAME tab_ref_col,
-R.MATCH_OPTION m,R.UPDATE_RULE upt,R.DELETE_RULE del
-FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
-INNER JOIN
-    INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
-          ON TC.CONSTRAINT_TYPE = ''''FOREIGN KEY'''' AND
-             TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
-INNER JOIN 
-    INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS as R
-          ON R.CONSTRAINT_NAME=TC.CONSTRAINT_NAME
-INNER JOIN 
-    INFORMATION_SCHEMA.KEY_COLUMN_USAGE as T
-    ON R.UNIQUE_CONSTRAINT_NAME=T.CONSTRAINT_NAME
-       
-ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION
-	'')';
+	                                        tab_ref character varying,tab_ref_col character varying,m character varying,upt character varying,del character varying ) server '|| $2 ||' options ( query ''
+                                                SELECT TC.table_name as tab, TC.CONSTRAINT_NAME fkname,KU.COLUMN_NAME col,  T.TABLE_NAME tab_ref,  T.COLUMN_NAME tab_ref_col,
+                                                R.MATCH_OPTION m,R.UPDATE_RULE upt,R.DELETE_RULE del
+                                                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
+                                                INNER JOIN
+                                                INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KU
+                                                        ON TC.CONSTRAINT_TYPE = ''''FOREIGN KEY'''' AND
+                                                        TC.CONSTRAINT_NAME = KU.CONSTRAINT_NAME 
+                                                INNER JOIN 
+                                                INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS as R
+                                                        ON R.CONSTRAINT_NAME=TC.CONSTRAINT_NAME
+                                                INNER JOIN 
+                                                INFORMATION_SCHEMA.KEY_COLUMN_USAGE as T
+                                                ON R.UNIQUE_CONSTRAINT_NAME=T.CONSTRAINT_NAME
+                                                WHERE TC.TABLE_SCHEMA ='''''||$1||'''''       
+                                                ORDER BY KU.TABLE_NAME, KU.ORDINAL_POSITION
+                                                        '')';
                 --RAISE NOTICE '%', command;
 		EXECUTE command;
 		EXCEPTION
@@ -407,9 +462,11 @@ CREATE OR REPLACE FUNCTION msmov.create_ftckey(source_schema text, fdw_name text
         BEGIN    
                 command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.c_keys';
                 EXECUTE command;
-		command:= 'CREATE  FOREIGN TABLE _'||$1||'.c_keys(tab text, cname text, clause text  ) server '|| $2 ||' options ( query ''select U.TABLE_NAME tab ,  C.CONSTRAINT_NAME cname ,C.CHECK_CLAUSE clause from INFORMATION_SCHEMA.CHECK_CONSTRAINTS as C
-INNER JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE as U 
-      ON C.CONSTRAINT_NAME=U.CONSTRAINT_NAME'')';
+		command:= 'CREATE  FOREIGN TABLE _'||$1||'.c_keys(tab text, cname text, clause text  ) server '|| $2 ||' options ( query ''
+											SELECT U.TABLE_NAME tab ,  C.CONSTRAINT_NAME cname ,C.CHECK_CLAUSE clause from INFORMATION_SCHEMA.CHECK_CONSTRAINTS as C
+											INNER JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE as U 
+											      ON C.CONSTRAINT_NAME=U.CONSTRAINT_NAME
+											WHERE U.TABLE_SCHEMA ='''''||$1||''''' '')';
                 --RAISE NOTICE '%', command;
 		EXECUTE command;
 		EXCEPTION
@@ -479,27 +536,29 @@ CREATE OR REPLACE FUNCTION msmov.create_ftindex(source_schema text, fdw_name tex
                 command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.index_keys';
                 EXECUTE command;
                 command:= 'CREATE  FOREIGN TABLE _'||$1||'.index_keys(tab character varying,iname character varying,col character varying,filter int,
-	filter_def character varying ) server '|| $2 ||' options ( query ''SELECT 
-      t.name tab,
-     ind.name iname,
-     col.name col,
-     ind.has_filter filter,
-     ind.filter_definition filter_def
-FROM 
-     sys.indexes ind 
-INNER JOIN 
-     sys.index_columns ic ON  ind.object_id = ic.object_id and ind.index_id = ic.index_id 
-INNER JOIN 
-     sys.columns col ON ic.object_id = col.object_id and ic.column_id = col.column_id 
-INNER JOIN 
-     sys.tables t ON ind.object_id = t.object_id 
-WHERE 
-     ind.is_primary_key = 0 
-     AND ind.is_unique = 0 
-     AND ind.is_unique_constraint = 0 
-     AND t.is_ms_shipped = 0 
-ORDER BY 
-     t.name, ind.name, ind.index_id, ic.index_column_id'')';
+													filter_def character varying ) server '|| $2 ||' options ( query ''
+													SELECT 
+													      t.name tab,
+													     ind.name iname,
+													     col.name col,
+													     ind.has_filter filter,
+													     ind.filter_definition filter_def,SCHEMA_NAME(t.schema_id)
+													FROM 
+													     sys.indexes ind 
+													INNER JOIN 
+													     sys.index_columns ic ON  ind.object_id = ic.object_id and ind.index_id = ic.index_id 
+													INNER JOIN 
+													     sys.columns col ON ic.object_id = col.object_id and ic.column_id = col.column_id 
+													INNER JOIN 
+													     sys.tables t ON ind.object_id = t.object_id 
+													WHERE 
+													     ind.is_primary_key = 0 
+													     AND ind.is_unique = 0 
+													     AND ind.is_unique_constraint = 0 
+													     AND t.is_ms_shipped = 0 
+													     AND SCHEMA_NAME(t.schema_id)='''''||$1||'''''
+													ORDER BY 
+													     t.name, ind.name, ind.index_id, ic.index_column_id'')';
                 --RAISE NOTICE '%', command;
 		EXECUTE command;
 		EXCEPTION
@@ -569,7 +628,8 @@ CREATE OR REPLACE FUNCTION msmov.create_ftviews(source_schema text, fdw_name tex
                 command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.views';
                 EXECUTE command;
                 command:= 'CREATE  FOREIGN TABLE _'||$1||'.views(tab character varying,  ddl character varying  ) server '|| $2 ||' options ( query ''
-                SELECT table_name tab, VIEW_DEFINITION ddl FROM INFORMATION_SCHEMA.VIEWS'')';
+									                SELECT table_name tab, VIEW_DEFINITION ddl,* FROM INFORMATION_SCHEMA.VIEWS 
+									                WHERE TABLE_SCHEMA = '''''||$1||'''''  '')';
                 --RAISE NOTICE '%', command;
 		EXECUTE command;
 		EXCEPTION
@@ -637,10 +697,13 @@ CREATE OR REPLACE FUNCTION msmov.create_ftdomains(source_schema text, fdw_name t
                 EXECUTE command;
                 command:= 'CREATE  FOREIGN TABLE _'||$1||'.domains(tab character varying,  typ_base character varying,
                       max_length  int, precision int,scale int,  is_nullable int,  is_table_type int    ) server '|| $2 ||' options ( query ''
-                SELECT 
-					o.name as tab, (select i.name from sys.types as i where o.system_type_id=i.system_type_id and i.name<>o.name) as typ_base,o.max_length ,o.[precision] ,o.scale,o.is_nullable,is_table_type 
+               SELECT 
+					o.name as tab, 
+					(select i.name from sys.types as i where o.system_type_id=i.system_type_id and i.name<>o.name) as typ_base,
+					o.max_length ,o.[precision] ,o.scale,o.is_nullable,is_table_type  
 					FROM sys.types o
-					WHERE o.is_user_defined = 1'')';
+					WHERE o.is_user_defined = 1
+					AND SCHEMA_NAME(o.schema_id )= '''''||$1||''''' '')';
                 --RAISE NOTICE '%', command;
                
 
@@ -687,6 +750,23 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
                           ( QUERY ''SELECT    DB_NAME() AS database_name,    CAST(SUM(  CAST( (size * 8.0/1024) AS DECIMAL(15,2) )  ) AS VARCHAR(20)) AS database_size FROM sys.database_files'')';
                 EXECUTE format(command,$1);
                
+                --users
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_users' ;
+		        EXECUTE format(command);
+		        command:= 'CREATE FOREIGN TABLE msmov.mssql_users ( username varchar, datowner varchar) 	SERVER %s OPTIONS 
+                         (query ''SELECT DISTINCT username,datowner FROM (
+								SELECT SUSER_SNAME(owner_sid) AS username, name as datowner FROM sys.databases
+								WHERE name not in  (''''master'''',''''model'''',''''msdb'''',''''tempdb'''')
+								UNION ALL 
+								SELECT name as username, '''''''' as datowner
+								--,type_desc as type,       authentication_type_desc as authentication_type
+								FROM sys.database_principals
+								WHERE type not in (''''A'''', ''''G'''', ''''R'''', ''''X'''') and
+								       sid is not null and
+								       name != ''''guest'''') as sub 
+								ORDER BY    datowner DESC  '', row_estimate_method ''showplan_all'' ) ';
+                EXECUTE format(command,$1);  
+             
                 --schemas
                 command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_schemas' ;
 		        EXECUTE format(command);
@@ -788,6 +868,37 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
 									JOIN sys.trigger_events tre ON tr.object_id = tre.object_id 
 									WHERE parent_class =0 AND  parent_class_desc =''''DATABASE''''  '',row_estimate_method ''showplan_all'')';
                 EXECUTE format(command,$1);
+                --database roles members
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_roles_members' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_roles_members ( databaserolename varchar, databaseusername varchar ) SERVER %s OPTIONS 
+                          (query '' SELECT DP1.name AS databaserolename,   
+									   isnull (DP2.name, ''''No members'''') AS databaseusername   
+									 FROM sys.database_role_members AS DRM  
+									 RIGHT OUTER JOIN sys.database_principals AS DP1  
+									   ON DRM.role_principal_id = DP1.principal_id  
+									 LEFT OUTER JOIN sys.database_principals AS DP2  
+									   ON DRM.member_principal_id = DP2.principal_id  
+									    --WHERE DP1.type = R
+									   WHERE isnull (DP2.name, ''''No members'''')<>''''No members''''
+									ORDER BY DP1.name;  '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+               --database grants 
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_grants' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_grants ( class_desc varchar, sch varchar, obj varchar, usr varchar, permission_name varchar, state_desc varchar) SERVER %s OPTIONS 
+                          (query '' SELECT 
+								    class_desc, isnull(schema_name(o.uid),'''''''') as sch
+								  , CASE WHEN class = 0 THEN DB_NAME()
+								         WHEN class = 1 THEN OBJECT_NAME(major_id)
+								         WHEN class = 3 THEN SCHEMA_NAME(major_id) END as obj
+								  , USER_NAME(grantee_principal_id) as usr , permission_name, state_desc
+								FROM sys.database_permissions dp
+								LEFT OUTER JOIN sysobjects o
+								    ON o.id = dp.major_id
+								 where major_id >= 1   '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
+               
                               
                         
                 --results of analysis
@@ -805,15 +916,20 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
                 result.cost:=((result.details)::numeric/100); --cost of size: 1 for each 100MB 
                 result.details:='Database size: '||result.details;
                 return next result;
+                --database users
+                EXECUTE format('SELECT count(*)::text as tab_count,string_agg(username,'',''),null FROM msmov.mssql_users') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*1  ELSE 0 END;  --cost of users : 1 for each 1 user 
+                result.details:='Database Users: '||result.details;
+                return next result;
                 --schemas 
-                EXECUTE format('SELECT string_agg(schema_name,'','') FROM msmov.mssql_schemas') into result.details;
+                EXECUTE format('SELECT  count(*)::text as sch_count,string_agg(schema_name,'',''),null FROM msmov.mssql_schemas') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*1  ELSE 0 END;  --cost of schema : 1 for each 1 schema 
                 result.details:='Database schemas: '||result.details;
-                result.cost=null; 
                 return next result;
                 --linked server                 
                 EXECUTE format('SELECT count(*)::text FROM msmov.mssql_linked_servers') into result.details;
                 result.comments:= CASE WHEN result.details<>'0' THEN 'You can use FDW extension to simulate linked server'  ELSE '' end;
-                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*2  ELSE 0 END;  --cost of linked server: 1 for each 1 linked server 
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*2  ELSE 0 END;  --cost of linked server: 2 for each 1 linked server 
                 result.details:='Linled Servers : '||result.details;
                 return next result;
                 --tables                 
@@ -883,8 +999,13 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
      END;	
      $_$;
  
+   
 
-       CREATE OR REPLACE FUNCTION msmov.create_ftsequences(source_schema text, fdw_name text) RETURNS integer
+ 
+
+
+
+CREATE OR REPLACE FUNCTION msmov.create_ftsequences(source_schema text, fdw_name text) RETURNS integer
     LANGUAGE plpgsql
     AS $_$
      DECLARE
@@ -899,9 +1020,11 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
                 EXECUTE command;
                 command:= 'CREATE  FOREIGN TABLE _'||$1||'.sequences("Schema" varchar, sequence_name varchar,current_value varchar,start_value varchar,	increment varchar,
                                                                       is_cycling varchar,	system_type varchar,user_type varchar   ) server '|| $2 ||' options ( query ''
-                SELECT     SCHEMA_NAME(schema_id) AS "Schema",    name as sequence_name,    CAST (current_value as  varchar) as current_value,    
+               SELECT     SCHEMA_NAME(schema_id) AS "Schema",    name as sequence_name,    CAST (current_value as  varchar) as current_value,    
                                     CAST (start_value as  varchar) as start_value ,    CAST (increment as  varchar) as increment,    is_cycling,    
-                                    TYPE_NAME(system_type_id) AS system_type,    TYPE_NAME(user_type_id) AS user_type FROM sys.sequences ORDER BY name;'')';
+                                    TYPE_NAME(system_type_id) AS system_type,    TYPE_NAME(user_type_id) AS user_type FROM sys.sequences 
+                                    WHERE SCHEMA_NAME(schema_id )= '''''||$1||'''''
+                                    ORDER BY name; '')';
                 --RAISE NOTICE '%', command;
        
 		EXECUTE command;
@@ -918,7 +1041,7 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
        RETURN 1;
      END;	
      $_$;    
-    
+        
 
 CREATE OR REPLACE FUNCTION msmov.import_sequences(target_schema text) RETURNS integer
     LANGUAGE plpgsql
@@ -989,3 +1112,59 @@ CREATE OR REPLACE FUNCTION msmov.create_ftsynonyms(source_schema text, fdw_name 
        RETURN 1;
      END;	
      $_$;      
+
+
+CREATE OR REPLACE FUNCTION msmov.generate_users_and_member_roles() RETURNS setof text
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     men text;   
+     mendetail text;
+     sqlerror text;
+     BEGIN
+        return query 
+          SELECT 'CREATE USER '||username || ' password ''P4ssword.'' ;' FROM msmov.mssql_users
+          union all 
+          SELECT 'GRANT  '|| CASE 
+	                           WHEN   databaserolename = 'db_owner' THEN 'postgres' 
+	                           WHEN   databaserolename = 'db_datareader' THEN 'pg_read_all_data' 
+	                           WHEN   databaserolename = 'db_datawriter' THEN 'pg_write_all_data'
+	                           ELSE databaserolename END
+	                           || ' TO '||databaseusername ||';' FROM msmov.mssql_roles_members;
+		EXCEPTION
+			WHEN OTHERS THEN
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,'CREATE USER and MEMBERS',sqlerror||'-'||men||'-'||mendetail);
+
+     END;	
+     $_$;     
+
+    CREATE OR REPLACE FUNCTION msmov.generate_grants() RETURNS setof text
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     men text;   
+     mendetail text;
+     sqlerror text;
+     BEGIN
+        return query 
+          SELECT CASE WHEN class_desc='OBJECT_OR_COLUMN' THEN 'GRANT USAGE ON SCHEMA '||sch ||' TO '||usr||';' ELSE ';' END FROM (
+          SELECT  DISTINCT sch,usr,class_desc   FROM msmov.mssql_grants)  as t 
+          union all 
+          SELECT 'GRANT '||CASE 
+	                           WHEN   class_desc = 'SCHEMA' and permission_name in ('SELECT' , 'INSERT' , 'UPDATE' , 'DELETE', 'REFERENCES') THEN permission_name|| ' ON ALL TABLES IN SCHEMA '||obj||' TO '|| usr ||';'
+	                           WHEN   class_desc = 'SCHEMA' and permission_name in ('EXECUTE') THEN permission_name|| ' ON ALL ROUTINE IN SCHEMA '||obj||' TO '|| usr ||';'
+	                           WHEN   class_desc = 'OBJECT_OR_COLUMN' and permission_name in ('SELECT' , 'INSERT' , 'UPDATE' , 'DELETE', 'REFERENCES') THEN permission_name|| ' ON TABLE '||sch||'.'||obj||' TO '|| usr ||';'
+	                           WHEN   class_desc = 'OBJECT_OR_COLUMN' and permission_name in ('EXECUTE') THEN permission_name|| ' ON ROUTINE '||sch||'.'||obj||' TO '|| usr ||';'
+	                           ELSE 'UNKNOW sentence->'|| g.*::text  end  FROM msmov.mssql_grants as g order by 1;
+        --https://learn.microsoft.com/en-us/sql/t-sql/statements/grant-schema-permissions-transact-sql?view=sql-server-ver16
+	    --https://www.postgresql.org/docs/current/sql-grant.html                    
+		EXCEPTION
+			WHEN OTHERS THEN
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,current_timestamp::timestamp without time zone ,'GRANTS',sqlerror||'-'||men||'-'||mendetail);
+
+     END;	
+     $_$;       

@@ -1,6 +1,6 @@
 ## msmov
 
-msmov is a PostgreSQL module to migrate from MSSQL to PostgreSQL using  foreign data wrapper `tds_fdw``, this module is composed of two components (schemas) :
+msmov is a PostgreSQL module to facilitate migration from MSSQL to PostgreSQL using  foreign data wrapper `tds_fdw``, this module is composed of two components (schemas) :
 
 * msmov function:  Functions to perform the migration from MSSQL (schema msmov)
 * mssql function and operators:  Functions and operator with MSSQL compatibility (schema mssql)
@@ -112,6 +112,9 @@ Inside the `msmov`` schema you can find the following tables:
 SELECT * FROM msmov.estimation_analysis ('server_mssql'); 
 SELECT sum(cost) FROM msmov.estimation_analysis ('server_mssql'); 
 
+-- GENERATE USERS AND ROLES MEMBERSHIPS, review the output manually, some clauses can be not compatible 
+ SELECT * FROM msmov.generate_users_and_member_roles() 
+
 --IMPORT TABLES
 SELECT  msmov.create_ftables('dbo','server_mssql',(select string_agg("TABLE_NAME",',') FROM msmov.mssql_views)); 
 SELECT msmov.create_tables_from_ft('dbo');
@@ -151,6 +154,11 @@ SELECT msmov.import_views('dbo');
 --Sequences
 SELECT msmov.create_ftsequences('dbo' ,'server_mssql'); 
 SELECT msmov.import_sequences('dbo'); 
+
+
+-- GENERATE USERS GRANTS, review the output manually, some clauses can be not compatible 
+ SELECT * FROM msmov.generate_grants() 
+ 
 --Stasts update
 ANALYZE VERBOSE;
 

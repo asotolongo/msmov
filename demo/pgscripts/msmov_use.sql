@@ -2,6 +2,9 @@
 SELECT * FROM msmov.estimation_analysis ('server_mssql_sakila'); 
 SELECT sum(cost) FROM msmov.estimation_analysis ('server_mssql_sakila'); 
 
+-- GENERATE USERS AND ROLES MEMBERSHIPS, review the output manually, some clauses can be not compatible 
+ SELECT * FROM msmov.generate_users_and_member_roles();
+
 --IMPORT TABLES
 SELECT  msmov.create_ftables('dbo','server_mssql_sakila',(SELECT string_agg("TABLE_NAME",',') FROM msmov.mssql_views)); 
 SELECT msmov.create_tables_from_ft('dbo');
@@ -41,6 +44,10 @@ SELECT msmov.import_views('dbo');
 --Sequences
 SELECT msmov.create_ftsequences('dbo' ,'server_mssql_sakila'); 
 SELECT msmov.import_sequences('dbo'); 
+
+-- GENERATE USERS GRANTS, review the output manually, some clauses can be not compatible 
+ SELECT * FROM msmov.generate_grants();
+
 --Stasts update
 ANALYZE VERBOSE;
 

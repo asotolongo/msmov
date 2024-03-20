@@ -16,6 +16,7 @@ docker-compose exec sqlserver /bin/bash -c "/opt/mssql-tools/bin/sqlcmd -S local
 
 docker-compose exec sqlserver /bin/bash -c "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'P4ssw0rd.' -i /scripts/sql-server-sakila-schema.sql"
 docker-compose exec sqlserver /bin/bash -c "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'P4ssw0rd.' -i /scripts/sql-server-sakila-insert-data.sql"
+docker-compose exec sqlserver /bin/bash -c "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'P4ssw0rd.' -i /scripts/sql-server-sakila-grants.sql"
 
 
 ###create extension and import schema from sqlserver in  postgres 
