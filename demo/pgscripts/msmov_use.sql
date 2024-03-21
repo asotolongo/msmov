@@ -51,7 +51,7 @@ SELECT msmov.create_ftsequences('dbo' ,'server_mssql_sakila');
 SELECT msmov.import_sequences('dbo'); 
 
 -- GENERATE USERS GRANTS, review the output manually, some clauses can be not compatible 
- SELECT * FROM msmov.generate_grants();
+ SELECT distinct * FROM msmov.generate_grants();
 
 --Stasts update
 ANALYZE VERBOSE;
