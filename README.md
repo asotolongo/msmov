@@ -7,7 +7,7 @@
 
 The migration can be performed by SQL commands directly from the  PostgreSQL database.
 
-`msmov` can make an estimation for the migration and show the main characteristics and components of your original MSSQL database, `msmov` will migrate tables, constraints, indexes, PKs, FKs, UNIQUES and CHECKS constraints,  sequences, other objects (triggers, functions, procedures, etc) don't be migrate directly but you can get the code.
+`msmov` can make an estimation for the migration and show the main characteristics and components of your original MSSQL database, `msmov` will migrate : TABLES, CONSTRAINTS, INDEXES, PKS, FKS, UNIQUES, CHECKS CONSTRAINTS,  SEQUENCES, SYNONYMS (TRIGGERS, FUNCTIONS, PROCEDURES, JOBS don't be migrate directly but you can get the code).
 
 
 ### PREREQUISITES:
@@ -57,7 +57,7 @@ Load in your database the scripts from [mssql](scripts/mssql_functions.sql) and 
 
 Inside the `msmov` schema you can find the following functions:
 
-* msmov.estimation_analysis ('name_of_foreign_server'): Function to get an analysis and cost estimation, it is mandatory to use this function first because it initializes some required objects. 
+* msmov.estimation_analysis ('name_of_foreign_server'): Function to get an analysis and cost estimation, it is mandatory to use this function first because it initializes some required objects inside `msmov` schema. 
 
 * msmov.create_ftables('schema_to_migrate','server_name_of_foreign_server','tables_to_exclude'): Function to migrate the tables from the schema `schema_to_migrate`  , `name_of_foreign_server` is the name of your foreign server, `tables_to_exclude` means the tables to exclude from the migration (comma separate list), `tables_to_exclude` by default is NULL. Internally create the foreign tables inside the schema named: `_schema_to_migrate` in addition a schema with the same name (`schema_to_migrate`) of origin database is created in PostgreSQL
 
@@ -154,6 +154,10 @@ SELECT msmov.import_views('dbo');
 --Sequences
 SELECT msmov.create_ftsequences('dbo' ,'server_mssql'); 
 SELECT msmov.import_sequences('dbo'); 
+
+--Synonyms
+SELECT msmov.create_ftsynonyms('dbo' ,'server_mssql_sakila'); 
+SELECT msmov.import_synonyms('dbo'); 
 
 
 -- GENERATE USERS GRANTS, review the output manually, some clauses can be not compatible 

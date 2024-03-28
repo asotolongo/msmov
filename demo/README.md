@@ -68,6 +68,10 @@ SELECT msmov.import_views('dbo');
 SELECT msmov.create_ftsequences('dbo' ,'server_mssql_sakila'); 
 SELECT msmov.import_sequences('dbo'); 
 
+--Synonyms
+SELECT msmov.create_ftsynonyms('dbo' ,'server_mssql_sakila'); 
+SELECT msmov.import_synonyms('dbo'); 
+
 -- GENERATE USERS GRANTS, review the output manually, some clauses can be not compatible 
  SELECT distinct * FROM msmov.generate_grants();
 
@@ -82,14 +86,6 @@ SELECT * FROM msmov.error_table;
 --clean
 DROP SCHEMA _dbo cascade ;
 DROP SCHEMA msmov cascade ;
-
-
-
-
-
-
-
-
 
 
 ```

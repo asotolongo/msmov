@@ -27,3 +27,20 @@ ALTER ROLE db_datareader ADD MEMBER mylogin; --member
 GO
 ALTER ROLE db_datareader ADD MEMBER mylogin2; --member
 GO
+
+--my_schema, commented
+-- CREATE SCHEMA my_schema;
+-- GO
+
+-- CREATE TABLE my_schema.data_tab (
+-- 	col1 int  ,
+-- 	col2 varchar(100) NULL,
+-- 	PRIMARY KEY (col1)
+-- );
+-- GO
+-- insert into my_schema.data_tab values (1,'uno'),(2,'dos'),(3,'tres'),(4,'cuatro');
+-- GO
+
+-- CREATE SYNONYM my for my_schema.data_tab;
+-- CREATE SYNONYM my_schema.my for my_schema.data_tab;
+-- GO

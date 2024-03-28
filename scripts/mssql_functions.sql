@@ -1,5 +1,3 @@
---funciones necesarias
-
 CREATE SCHEMA mssql;
 
 
@@ -655,4 +653,90 @@ CREATE FUNCTION newid() RETURNS uuid
   LEFTARG = character varying,
   RIGHTARG = ANYELEMENT,
   PROCEDURE = mssql.add_text);
---funciones necesarias
+
+CREATE FUNCTION rand()
+RETURNS numeric
+AS
+$$
+BEGIN
+	return random();
+END;
+$$
+LANGUAGE  plpgsql VOLATILE;
+
+CREATE FUNCTION rand( seed integer )
+RETURNS numeric
+AS
+$$
+BEGIN
+
+	perform setseed(seed/2147483649::numeric);
+	return random();
+END;
+$$
+LANGUAGE  plpgsql VOLATILE;
+--courtesy monica copilot
+--https://monica.im/share/chat?shareId=tUGvyBtWgTYvXQJj
+CREATE FUNCTION isdate(input_text text) RETURNS BOOLEAN AS $$
+DECLARE
+    valid_date BOOLEAN;
+BEGIN
+    BEGIN
+        -- Attempt to parse the input_text as a date
+        PERFORM input_text::date;
+        -- If successful, set valid_date to true
+        valid_date := true;
+    EXCEPTION
+        -- If an exception is raised, set valid_date to false
+        WHEN others THEN
+            valid_date := false;
+    END;
+
+    -- Return the result
+    RETURN valid_date;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE FUNCTION istime(input_text text) RETURNS BOOLEAN AS $$
+DECLARE
+    valid_time BOOLEAN;
+BEGIN
+    BEGIN
+        -- Attempt to parse the input_text as a time
+        PERFORM input_text::time;
+        -- If successful, set valid_time to true
+        valid_time := true;
+    EXCEPTION
+        -- If an exception is raised, set valid_time to false
+        WHEN others THEN
+            valid_time := false;
+    END;
+
+    -- Return the result
+    RETURN valid_time;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE FUNCTION isnumeric(input_text text) RETURNS BOOLEAN AS $$
+DECLARE
+    valid_numeric BOOLEAN;
+BEGIN
+    BEGIN
+        -- Attempt to parse the input_text as a numeric value
+        PERFORM input_text::numeric;
+        -- If successful, set valid_numeric to true
+        valid_numeric := true;
+    EXCEPTION
+        -- If an exception is raised, set valid_numeric to false
+        WHEN others THEN
+            valid_numeric := false;
+    END;
+
+    -- Return the result
+    RETURN valid_numeric;
+END;
+$$ LANGUAGE plpgsql;
+
+--courtesy monica copilot

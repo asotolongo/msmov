@@ -512,8 +512,13 @@ CREATE SEQUENCE seq2
     INCREMENT BY 1 
 GO        
    
-CREATE SYNONYM peliculas
-FOR film
+CREATE SYNONYM peliculas FOR dbo.film
+GO
+CREATE SYNONYM x for dbo.gettotalprice;
+GO
+CREATE SYNONYM y for dbo.get_actor_by_name;
+GO
+CREATE SYNONYM z for dbo.film_list;
 GO
    
 

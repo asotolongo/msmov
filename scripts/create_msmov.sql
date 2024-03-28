@@ -869,8 +869,16 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
                 --synonyms
                 command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_synonyms' ;
 		        EXECUTE format(command);
-                command:= 'CREATE FOREIGN TABLE msmov.mssql_synonyms ( syn_name varchar, object_ref varchar) SERVER %s OPTIONS 
-                          (query ''SELECT  name as syn_name ,base_object_name as object_ref FROM sys.synonyms '',row_estimate_method ''showplan_all'')';
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_synonyms ( sch varchar,syn_name varchar, object_ref varchar, object_type varchar) SERVER %s OPTIONS 
+                          (query '' SELECT  SCHEMA_NAME(schema_id) AS sch,name as syn_name ,base_object_name  as object_ref
+									      ,CAST (CASE 
+									      	 WHEN OBJECTPROPERTYEX(object_id(name), ''''BaseType'''') = ''''U'''' THEN ''''TABLE''''
+									      	 WHEN OBJECTPROPERTYEX(object_id(name), ''''BaseType'''') = ''''FN'''' THEN ''''FUNCTION''''
+									      	 WHEN OBJECTPROPERTYEX(object_id(name), ''''BaseType'''') = ''''P'''' THEN ''''PROCEDURE''''
+									      	 WHEN OBJECTPROPERTYEX(object_id(name), ''''BaseType'''') = ''''V'''' THEN ''''VIEW''''
+									      	 ELSE OBJECTPROPERTYEX(object_id(name), ''''BaseType'''')
+									      END as varchar )as object_type
+									      FROM sys.synonyms '',row_estimate_method ''showplan_all'')';
                 EXECUTE format(command,$1);
                 --procedures
                 command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_procedures' ;
@@ -960,6 +968,15 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
 						          COLUMNPROPERTY(object_id(TABLE_NAME), COLUMN_NAME, ''''IsIdentity'''') = 1
 						          ORDER BY TABLE_NAME  '',row_estimate_method ''showplan_all'')';
                 EXECUTE format(command,$1);
+                --database jobs
+                command:= 'DROP FOREIGN TABLE IF EXISTS msmov.mssql_jobs' ;
+		        EXECUTE format(command);
+                command:= 'CREATE FOREIGN TABLE msmov.mssql_jobs ( job_id varchar,  name varchar, enabled int, description varchar, step_name varchar, command varchar, server varchar, database_name varchar) SERVER %s OPTIONS 
+                          (query '' SELECT job.job_id,  name, enabled, description, step_name, command, server, database_name
+							FROM    msdb.dbo.sysjobs job
+							INNER JOIN   msdb.dbo.sysjobsteps steps  ON  job.job_id = steps.job_id
+							WHERE job.enabled = 1;  '',row_estimate_method ''showplan_all'')';
+                EXECUTE format(command,$1);
                
                               
                         
@@ -992,7 +1009,7 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
                 EXECUTE format('SELECT count(*)::text FROM msmov.mssql_linked_servers') into result.details;
                 result.comments:= CASE WHEN result.details<>'0' THEN 'You can use FDW extension to simulate linked server'  ELSE '' end;
                 result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*2  ELSE 0 END;  --cost of linked server: 2 for each 1 linked server 
-                result.details:='Linled Servers : '||result.details;
+                result.details:='Linked Servers : '||result.details;
                 return next result;
                 --tables                 
                 EXECUTE format('SELECT count(*)::text as tab_count,string_agg("TABLE_NAME",'','') as tab_list,null  FROM msmov.mssql_tables') into result;
@@ -1040,9 +1057,16 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
                 result.details:='Data Types : '||result.details;
                 return next result;
                 --database triggers                 
-                EXECUTE format('SELECT count(DISTINCT name)::text as tri_count,string_agg(DISTINCT name,'','')  FROM msmov.mssql_database_triggers group by name') into result;
+                EXECUTE format('SELECT count(DISTINCT name)::text as tri_count,string_agg(DISTINCT name,'',''),null  FROM msmov.mssql_database_triggers group by name') into result;
                 result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*7  ELSE 0 END;  --cost of database trigger, 7 for each data types
-                result.details:='Database Trigger : '||result.details;
+                result.details:='Database Trigger : '||COALESCE (result.details,'0');
+                result.comments:= 'You can use EVENT trigger to simulated database trigger in postgres: ('||result.comments||')';
+                return next result;
+                --database jobs                 
+                EXECUTE format('SELECT count(DISTINCT job_id)::text,'''', null   FROM msmov.mssql_jobs group by name') into result;
+                result.cost:= CASE WHEN result.details<>'0' THEN (result.details)::int*7  ELSE 0 END;  --cost of database jobs, 7 for each data types
+                result.details:='Database jobs : '||COALESCE (result.details,'0');
+                result.comments:= 'You can use pg_cron or pgagent extensions to simulated jobs in postgres';
                 return next result;
               
 		       --RAISE NOTICE '%', command;
@@ -1060,7 +1084,7 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
 	     
      END;	
      $_$;
- 
+  
    
 
  
@@ -1155,8 +1179,16 @@ CREATE OR REPLACE FUNCTION msmov.create_ftsynonyms(source_schema text, fdw_name 
         BEGIN
                 command:= 'drop FOREIGN TABLE IF EXISTS _'||$1||'.synonyms';
                 EXECUTE command;
-                command:= 'CREATE  FOREIGN TABLE _'||$1||'.synonyms(syn_name varchar, object_ref  varchar ) server '|| $2 ||' options ( query ''
-                SELECT  name as syn_name ,base_object_name as object_ref FROM sys.synonyms '')';
+                command:= 'CREATE  FOREIGN TABLE _'||$1||'.synonyms(sch varchar, syn_name varchar, object_ref  varchar, object_type varchar ) server '|| $2 ||' options ( query ''
+                 SELECT  SCHEMA_NAME(schema_id) AS sch, name as syn_name ,base_object_name  as object_ref
+									      ,CAST (CASE 
+									      	 WHEN OBJECTPROPERTYEX(object_id(name), ''''BaseType'''') = ''''U'''' THEN ''''TABLE''''
+									      	 WHEN OBJECTPROPERTYEX(object_id(name), ''''BaseType'''') = ''''FN'''' THEN ''''FUNCTION''''
+									      	 WHEN OBJECTPROPERTYEX(object_id(name), ''''BaseType'''') = ''''P'''' THEN ''''PROCEDURE''''
+									      	 WHEN OBJECTPROPERTYEX(object_id(name), ''''BaseType'''') = ''''V'''' THEN ''''VIEW''''
+									      	 ELSE OBJECTPROPERTYEX(object_id(name), ''''BaseType'''')
+									      END as varchar )as object_type
+									      FROM sys.synonyms WHERE SCHEMA_NAME(schema_id )= '''''||$1||''''' '')';
                 --RAISE NOTICE '%', command;
                
 
@@ -1173,8 +1205,49 @@ CREATE OR REPLACE FUNCTION msmov.create_ftsynonyms(source_schema text, fdw_name 
 	END;
        RETURN 1;
      END;	
-     $_$;      
+     $_$;  
 
+CREATE OR REPLACE FUNCTION msmov.import_synonyms(target_schema text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$
+     DECLARE
+     tab record;
+     tmp text;
+     command text;
+     men text;   
+     mendetail text;
+     sqlerror text;
+     cnt int :=0;
+     BEGIN
+        command := 'SELECT * FROM _'||$1||'.synonyms ';
+        FOR tab IN EXECUTE command  loop
+	    BEGIN        
+	            IF tab.object_type IN  ('TABLE','VIEW') THEN 
+                command := 'CREATE VIEW '||tab.sch||'.'||tab.syn_name||' AS SELECT * FROM '||replace(replace(tab.object_ref,'[',''),']','' );
+                RAISE NOTICE 'IMPORTING SYNONYM % ',tab.syn_name; 
+                
+                EXECUTE command;
+                cnt:=cnt+1;
+                ELSE 
+                RAISE NOTICE 'NOT POSSIBLE TO IMPORTING SYNONYM % , TARGET OBJET TYPE: % ',tab.syn_name, tab.object_type; 
+                END IF;
+            
+
+		EXCEPTION
+			WHEN OTHERS THEN
+			RAISE NOTICE 'command: %', command;
+			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
+                        cnt:=cnt-1;
+			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
+                        INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
+		END;
+			 
+
+       END LOOP; 
+       RAISE NOTICE 'TOTAL SYNONYM IMPORTED: %',cnt; 
+       RETURN cnt;
+     END;	
+     $_$;     
 
 CREATE OR REPLACE FUNCTION msmov.generate_users_and_member_roles() RETURNS setof text
     LANGUAGE plpgsql
