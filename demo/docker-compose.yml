@@ -1,0 +1,32 @@
+version: "3.1"
+services:
+  sqlserver:
+    #image: mcr.microsoft.com/mssql/server:2017-latest
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    user: '0:0'
+    container_name: sqlserver
+    ports:
+      - 1433:1433
+    env_file:
+      - mssql.env
+    volumes:
+      - ./sqlserver-data:/var/opt/mssql
+      - ./scripts:/scripts
+    networks:
+      - mssql      
+
+  pg15:
+    image: "postgres:15"
+    container_name: pg15
+    ports:
+      - 15566:5432
+    volumes:
+      - ./pgdata/pg1:/var/lib/postgresql/data
+      - ./pgscripts:/pgscripts
+    env_file: pgsecrets.env
+    networks:
+      - mssql
+
+networks:
+  mssql:
+        
