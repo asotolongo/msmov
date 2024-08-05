@@ -7,7 +7,13 @@
 
 The migration can be performed by SQL commands directly from the  PostgreSQL database.
 
-`msmov` can make an estimation for the migration and show the main characteristics and components of your original MSSQL database, `msmov` will migrate : TABLES, CONSTRAINTS, INDEXES, PKS, FKS, UNIQUES, CHECKS CONSTRAINTS,  SEQUENCES, SYNONYMS (TRIGGERS, FUNCTIONS, PROCEDURES, JOBS don't be migrate directly but you can get the code).
+`msmov` can make an estimation for the migration and show the main characteristics and components of your original MSSQL database, `msmov` will migrate : TABLES, CONSTRAINTS, INDEXES, PKS, FKS, UNIQUES, CHECKS CONSTRAINTS,  SEQUENCES, SYNONYMS, VIEWS (TRIGGERS, FUNCTIONS, PROCEDURES, JOBS don't be migrate directly but you can get the code).
+
+This strategy(using FDW) to perform the migration from MSSQL to PostgreSQL has several advantages:
+
+* Simplicity: Facilitates access to remote data without the need for additional external tools.
+
+* Control: With everything being inside PostgreSQL, you have granular control over data migration and transformation operations, given to you the option to create SQL scripts as you need, and if you kown/use SQL you will love this strategy
 
 
 ### PREREQUISITES:
@@ -59,15 +65,15 @@ Inside the `msmov` schema you can find the following functions:
 
 * msmov.estimation_analysis ('name_of_foreign_server'): Function to get an analysis and cost estimation, it is mandatory to use this function first because it initializes some required objects inside `msmov` schema. 
 
-* msmov.create_ftables('schema_to_migrate','server_name_of_foreign_server','tables_to_exclude'): Function to migrate the tables from the schema `schema_to_migrate`  , `name_of_foreign_server` is the name of your foreign server, `tables_to_exclude` means the tables to exclude from the migration (comma separate list), `tables_to_exclude` by default is NULL. Internally create the foreign tables inside the schema named: `_schema_to_migrate` in addition a schema with the same name (`schema_to_migrate`) of origin database is created in PostgreSQL
+* msmov.create_ftables('schema_to_migrate','server_name_of_foreign_server','tables_to_exclude'): Function to migrate the tables from the schema `schema_to_migrate`  , `name_of_foreign_server` is the name of your foreign server, `tables_to_exclude` means the tables to exclude from the migration (comma separate list), `tables_to_exclude` by default is NULL. Internally create the foreign tables inside the schema named: `_schema_to_migrate` in addition a schema with the same name (`schema_to_migrate`) of origin database is created in PostgreSQL.
 
-* msmov.create_tables_from_ft('schema_to_migrate'): Create physical tables in schema `schema_to_migrate` from the foreign tables
-
-
-* msmov.import_data_one_table('schema_to_migrate',"TABLE_NAME"): Function to migrate data for a table, if your tables are big we recommend using another tool (that uses `COPY`, such as: [pgloader](https://github.com/dimitri/pgloader)) to migrate data because this function uses the `INSERT` command and this can be slow.
+* msmov.create_tables_from_ft('schema_to_migrate'): Create physical tables in schema `schema_to_migrate` from the foreign tables.
 
 
-* msmov.create_ftpkey('schema_to_migrate','server_name_of_foreign_server') : Function to migrate the PKs from the schema `schema_to_migrate`  , `name_of_foreign_server` is the name of your foreign server.  Internally create the foreign table with the information about PKs inside the schema named: `_schema_to_migrate`
+* msmov.import_data_one_table('schema_to_migrate',"TABLE_NAME"): Function to migrate data for a table, if your tables are big we recommend using another tool (that uses `COPY`, such as: [pgloader](https://github.com/dimitri/pgloader)) to migrate data because this function uses the `INSERT` command and this can be slow in some cases. It is recommended to parallelize this process in different scripts to improve the speed of data migration.
+
+
+* msmov.create_ftpkey('schema_to_migrate','server_name_of_foreign_server') : Function to migrate the PKs from the schema `schema_to_migrate`  , `name_of_foreign_server` is the name of your foreign server.  Internally create the foreign table with the information about PKs inside the schema named: `_schema_to_migrate`.
 
 
 * msmov.create_ftukey('schema_to_migrate','server_name_of_foreign_server'):  Similar to `create_ftpkey` function but with the information related to `UNIQUE` constrainst. 
@@ -104,7 +110,6 @@ Inside the `msmov`` schema you can find the following tables:
 
 * msmov.data_imported_table: store the information related to rows migrated using the function: `import_data_one_table`
 * msmov.error_table: store the information related to errors returned using the msmov for migrating
-
 * msmov.mssql_columns_type_change: store the rules of data type changes, the changes will apply when execute the function `msmov.create_tables_from_ft`
 
 ### Use
@@ -124,7 +129,7 @@ SELECT msmov.create_tables_from_ft('dbo');
 
 
 --IMPORT DATA
-SELECT msmov.import_data_one_table('dbo',"TABLE_NAME") from msmov.mssql_tables ;
+SELECT msmov.import_data_one_table('dbo',"TABLE_NAME") from msmov.mssql_tables ;-- you can perform this in different scripts passing the tables requires for parallelizing this process
 
 
 --PK
@@ -218,12 +223,15 @@ _NOTE: MSSQL 2012 can work, but not tested_
 ## Errors tips
 
 * DATE issue  due to locale setting differences:
- Sometimes you can face issues with date format during the data migration, you can solve it using following:
+ Sometimes you can face issues with date/datetime format during the data migration, you can solve it using following:
 
     * Changing temporally the data type
 
       ```
-      --change data type
+      --change data type to text
+      --using the msmov option to change the data type 
+      INSERT INTO msmov.mssql_columns_type_change (sch,tab,col,typ) VALUES ('dbo','name_of_table','rental_date','text');
+      --or use the ALTER TABLE clause directly
       ALTER TABLE _dbo."name_of_table" ALTER COLUMN data TYPE text ;
       ALTER TABLE dbo."name_of_table" ALTER COLUMN data TYPE text ;
       --migrate data

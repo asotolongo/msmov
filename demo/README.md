@@ -13,7 +13,7 @@ sh init.sh
 
 Connect to container database and perform the migration process using SQL`s command only
 
-`docker-compose exec pg15 /bin/bash -c "su - postgres -c 'psql -d pagila'`
+`docker-compose exec pg15 /bin/bash -c "su - postgres -c 'psql -d pagila'"`
 
 ```
 --ESTIMATION and initialitation
@@ -80,7 +80,7 @@ ANALYZE VERBOSE;
 
 --data imported
 SELECT * FROM msmov.data_imported_table;
---ERRORES
+--ERRORS
 SELECT * FROM msmov.error_table;
 
 --clean
