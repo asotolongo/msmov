@@ -22,6 +22,7 @@ CREATE TABLE msmov.mssql_columns_type_change (
 	col varchar NOT NULL,
 	typ varchar NOT NULL
 );
+ALTER TABLE msmov.mssql_columns_type_change ADD CONSTRAINT type_change_unique UNIQUE (sch, tab,col );
 
 CREATE OR REPLACE FUNCTION msmov.create_ftables(source_schema text, fdw_name text, tab_except text default null) RETURNS integer
     LANGUAGE plpgsql
@@ -132,8 +133,13 @@ CREATE OR REPLACE  FUNCTION msmov.create_tables_from_ft(from_schema text) RETURN
        FOR indentity_rec IN SELECT * from msmov.mssql_columns_type_change LOOP 
           BEGIN
 	       IF indentity_rec.sch=$1 THEN
-	           command:= 'ALTER TABLE "'|| indentity_rec.sch||'"."'|| indentity_rec.tab ||'" ALTER COLUMN  "'|| indentity_rec.col ||'" TYPE '|| indentity_rec.typ ||' USING "'||indentity_rec.col||'"::'||indentity_rec.typ;
+               --change type in Foreign Table
+	           command:= 'ALTER TABLE "_'|| indentity_rec.sch||'"."'|| indentity_rec.tab ||'" ALTER COLUMN  "'|| indentity_rec.col ||'" TYPE '|| indentity_rec.typ;
 	           EXECUTE command;
+               --change type in Local Table
+                   command:= 'ALTER TABLE "'|| indentity_rec.sch||'"."'|| indentity_rec.tab ||'" ALTER COLUMN  "'|| indentity_rec.col ||'" TYPE '|| indentity_rec.typ ||' USING "'||indentity_rec.col||'"::'||indentity_rec.typ;
+	           EXECUTE command;
+
 	       END IF;
 	          
 	      EXCEPTION
@@ -151,6 +157,8 @@ CREATE OR REPLACE  FUNCTION msmov.create_tables_from_ft(from_schema text) RETURN
        RETURN cnt;
      END;	
      $_$;
+    
+
     
 
 
