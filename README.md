@@ -3,7 +3,7 @@
 `msmov` is a PostgreSQL module to facilitate migration from MSSQL to PostgreSQL using Foreign Data Wrapper `tds_fdw`, this module is composed of two components (schemas) :
 
 * msmov function:  Functions to perform the migration from MSSQL (schema msmov)
-* mssql function and operators:  Functions and operator with MSSQL compatibility (schema mssql)
+* mssql function and operators:  Functions and operators with MSSQL compatibility (schema mssql)
 
 The migration can be performed by SQL commands directly from the  PostgreSQL database.
 
@@ -37,14 +37,14 @@ CREATE SERVER
 CREATE USER MAPPING FOR public
         SERVER server_mssql
         OPTIONS (
-       username 'msmsql_user',
+       username 'msmsql_user', --require permission to read the mssql catalog(sys and information_schema) and read access for users data tables (fixed role db_datareader)
        password 'msmsql_user_password'
 );
 
 
 ```
 
-MSSQL msmsql_user require read access to catalog's views and table(sys and information_schema schemas)
+MSSQL msmsql_user require permission to read the mssql catalog(sys and information_schema) and read access for users data tables (fixed database role db_datareader)
 
 In PostgreSQL, the user required  privileges to create PostgreSQL schemas
 
@@ -91,6 +91,8 @@ Inside the `msmov` schema you can find the following functions:
 
 * msmov.create_ftsequences('schema_to_migrate','server_name_of_foreign_server'): Similar to `create_ftpkey` function but with the information related to `SEQUENCES`. 
 
+* msmov.create_ftsynonyms('schema_to_migrate','server_name_of_foreign_server'): Similar to `create_ftpkey` function but with the information related to `synonyms`.
+
 * msmov.import_pk_tables('schema_to_migrate'):  Create physical PKs for tables in schema `schema_to_migrate`. 
 
 * msmov.import_uk_tables('schema_to_migrate'):  Similar `import_pk_tables` but with the information related to `UNIQUES` constrainst. 
@@ -99,11 +101,13 @@ Inside the `msmov` schema you can find the following functions:
 
 * msmov.import_ck_tables('schema_to_migrate'): Similar `import_pk_tables` but with the information related to `CHECK` constrainst. 
 
-* msmov.import_index_tables('schema_to_migrate'): Similar `import_pk_tables` but with the information related to `INDEXES` constrainst. 
+* msmov.import_index_tables('schema_to_migrate'): Similar `import_pk_tables` but with the information related to `INDEXES`. 
 
-* msmov.import_views('schema_to_migrate'): Similar `import_pk_tables` but with the information related to `VIEWS` constrainst. 
+* msmov.import_views('schema_to_migrate'): Similar `import_pk_tables` but with the information related to `VIEWS`. 
 
-* msmov.import_sequences('schema_to_migrate'): Similar `import_pk_tables` but with the information related to `SEQUENCES` constrainst. 
+* msmov.import_sequences('schema_to_migrate'): Similar `import_pk_tables` but with the information related to `SEQUENCES`. 
+
+* msmov.import_synonyms: ('schema_to_migrate'): Similar `import_pk_tables` but with the information related to `SYNONYMS`. 
 
 Inside the `msmov`` schema you can find the following tables:
 
@@ -129,7 +133,7 @@ SELECT msmov.create_tables_from_ft('dbo');
 
 
 --IMPORT DATA
-SELECT msmov.import_data_one_table('dbo',"TABLE_NAME") from msmov.mssql_tables ;-- you can perform this in different scripts passing the tables requires for parallelizing this process
+SELECT msmov.import_data_one_table('dbo',"TABLE_NAME") from msmov.mssql_tables ;-- you can perform this in different scripts by passing the tables required for parallelizing this process
 
 
 --PK
