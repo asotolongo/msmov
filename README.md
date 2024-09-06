@@ -281,4 +281,4 @@ THE AUTHORS SPECIFICALLY DISCLAIM ANY WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
 This module is an open project. Feel free to join us and improve this module. To find out how you can get involved, please contact us or write us:
 
 * Anthony Sotolongo: 
-asotolongo@gmail.com, asotolongo@ongres.com
+asotolongo@gmail.com
