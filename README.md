@@ -1,19 +1,25 @@
 ## msmov
 
-`msmov` is a PostgreSQL module to facilitate migration from MSSQL to PostgreSQL using Foreign Data Wrapper `tds_fdw`, this module is composed of two components (schemas) :
+`msmov` is a PostgreSQL module designed to facilitate migrations from Microsoft SQL Server (MSSQL) to PostgreSQL using the `tds_fdw` Foreign Data Wrapper. The module consists of two main components (schemas):
 
-* msmov function:  Functions to perform the migration from MSSQL (schema msmov)
-* mssql function and operators:  Functions and operators with MSSQL compatibility (schema mssql)
+* msmov schema: Contains functions to perform the migration from MSSQL.
+* mssql schema: Provides functions and operators for MSSQL compatibility.
+
+
 
 The migration can be performed by SQL commands directly from the  PostgreSQL database.
 
-`msmov` can make an estimation for the migration and show the main characteristics and components of your original MSSQL database, `msmov` will migrate : TABLES, CONSTRAINTS, INDEXES, PKS, FKS, UNIQUES, CHECKS CONSTRAINTS,  SEQUENCES, SYNONYMS, VIEWS (TRIGGERS, FUNCTIONS, PROCEDURES, JOBS don't be migrate directly but you can get the code).
+`msmov` can estimate the migration scope and provide insights into the key characteristics and components of your MSSQL database. It supports the migration of tables, constraints, indexes, primary keys (PKs), foreign keys (FKs), unique constraints, check constraints, sequences, synonyms, and views. While triggers, functions, procedures, and jobs are not migrated directly, msmov allows you to extract their code for manual adaptation.
 
-This strategy(using FDW) to perform the migration from MSSQL to PostgreSQL has several advantages:
 
-* Simplicity: Facilitates access to remote data without the need for additional external tools.
+Why use FDW-based migration?
+This approach offers several advantages:
 
-* Control: With everything being inside PostgreSQL, you have granular control over data migration and transformation operations, given to you the option to create SQL scripts as you need, and if you kown/use SQL you will love this strategy
+* Simplicity: Enables seamless access to remote MSSQL data without requiring additional external tools.
+
+* Control: Since everything happens within PostgreSQL, you gain fine-grained control over data migration and transformation. You can generate custom SQL scripts as needed, making this approach ideal if you are comfortable with SQL.
+
+
 
 
 ### PREREQUISITES:
@@ -43,14 +49,12 @@ CREATE USER MAPPING FOR public
 
 
 ```
+The msmsql_user in MSSQL requires permissions to read the MSSQL catalog (sys and information_schema) and read access to user data tables (granted through the fixed database role db_datareader).
 
-MSSQL msmsql_user require permission to read the mssql catalog(sys and information_schema) and read access for users data tables (fixed database role db_datareader)
+In PostgreSQL, the user needs privileges to create schemas.
 
-In PostgreSQL, the user required  privileges to create PostgreSQL schemas
+It is recommended to add mssql to your database's search_path to enable the use of functions and operators from the mssql schema. For example:
 
-
-
-It recommendable add `mssql` to your database's `search_path`, to add the functions and operators from mssql schema,  for example:
 
 
 ```
