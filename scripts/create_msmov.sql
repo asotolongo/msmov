@@ -59,10 +59,7 @@ CREATE OR REPLACE FUNCTION msmov.create_ftables(source_schema text, fdw_name tex
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
 			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-                        --RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
-	END;
+    	END;
        SELECT count(*) into cnt from information_schema.foreign_tables  WHERE  foreign_table_schema='_'||$1;
        RAISE NOTICE 'Create  % FOREIGN tables in schema _%, corresponding to tables from MSSQL schema %', cnt,$1,$1;
        RETURN cnt;
@@ -101,7 +98,6 @@ CREATE OR REPLACE  FUNCTION msmov.create_tables_from_ft(from_schema text) RETURN
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
 			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
                         cnt:=cnt-1;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
 		END;
 		cnt:=cnt+1;	 
 
@@ -193,8 +189,6 @@ AS $_$
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
 			RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--cnt:=cnt-1;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
 		END;
 		cnt:=cnt+1;
     
@@ -238,9 +232,6 @@ AS $_$
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	
@@ -324,9 +315,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftfkey(source_schema text, fdw_name text
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	
@@ -361,9 +349,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftukey(source_schema text, fdw_name text
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	
@@ -451,9 +436,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftfkey(source_schema text, fdw_name text
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	
@@ -535,9 +517,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftckey(source_schema text, fdw_name text
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	
@@ -579,7 +558,6 @@ CREATE OR REPLACE FUNCTION msmov.import_ck_tables(target_schema text) RETURNS in
        RETURN cnt;
      END;	
      $_$;    
---SELECT msmov.import_ck_tables('dbo');
 
 
 CREATE OR REPLACE FUNCTION msmov.create_ftindex(source_schema text, fdw_name text) RETURNS integer
@@ -627,10 +605,7 @@ CREATE OR REPLACE FUNCTION msmov.create_ftindex(source_schema text, fdw_name tex
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
-	END;
+ 	END;
        RETURN 1;
      END;	
      $_$; 
@@ -698,9 +673,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftviews(source_schema text, fdw_name tex
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	
@@ -764,7 +736,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftdomains(source_schema text, fdw_name t
 					FROM sys.types o
 					WHERE o.is_user_defined = 1
 					AND SCHEMA_NAME(o.schema_id )= '''''||$1||''''' '')';
-                --RAISE NOTICE '%', command;
                
 
 		EXECUTE command;
@@ -774,9 +745,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftdomains(source_schema text, fdw_name t
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	
@@ -1084,9 +1052,6 @@ CREATE OR REPLACE FUNCTION msmov.estimation_analysis (fdw_name text) RETURNS SET
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
      return;
 	     
@@ -1119,7 +1084,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftsequences(source_schema text, fdw_name
                                     TYPE_NAME(system_type_id) AS system_type,    TYPE_NAME(user_type_id) AS user_type FROM sys.sequences 
                                     WHERE SCHEMA_NAME(schema_id )= '''''||$1||'''''
                                     ORDER BY name; '')';
-                --RAISE NOTICE '%', command;
        
 		EXECUTE command;
 		EXCEPTION
@@ -1128,9 +1092,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftsequences(source_schema text, fdw_name
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	
@@ -1197,8 +1158,7 @@ CREATE OR REPLACE FUNCTION msmov.create_ftsynonyms(source_schema text, fdw_name 
 									      	 ELSE OBJECTPROPERTYEX(object_id(name), ''''BaseType'''')
 									      END as varchar )as object_type
 									      FROM sys.synonyms WHERE SCHEMA_NAME(schema_id )= '''''||$1||''''' '')';
-                --RAISE NOTICE '%', command;
-               
+              
 
 		EXECUTE command;
 		EXCEPTION
@@ -1207,9 +1167,6 @@ CREATE OR REPLACE FUNCTION msmov.create_ftsynonyms(source_schema text, fdw_name 
 			GET STACKED DIAGNOSTICS  men = MESSAGE_TEXT,mendetail = PG_EXCEPTION_DETAIL,sqlerror=RETURNED_SQLSTATE;
                         INSERT INTO msmov.error_table (id,date_time,command,error) VALUES ($1,clock_timestamp ( ) ::timestamp without time zone ,command,sqlerror||'-'||men||'-'||mendetail);
                         RAISE NOTICE 'Error %, %,% ',sqlerror,men,mendetail;
-			--RAISE EXCEPTION 'Error %, %,% ',sqlerror,men,mendetail;
-    
- 
 	END;
        RETURN 1;
      END;	

@@ -16,9 +16,9 @@ Connect to container database and perform the migration process using SQL`s comm
 `docker-compose exec pg15 /bin/bash -c "su - postgres -c 'psql -d pagila'"`
 
 ```
---ESTIMATION and initialitation
-SELECT * FROM msmov.estimation_analysis ('server_mssql_sakila'); 
-SELECT sum(cost) FROM msmov.estimation_analysis ('server_mssql_sakila'); 
+--ESTIMATION and initialitation, it is mandatory perform this function because create a a lot components
+SELECT details,cost FROM msmov.estimation_analysis ('server_mssql_sakila'); 
+--SELECT details,comments,cost FROM msmov.estimation_analysis ('server_mssql_sakila'); 
 
 -- GENERATE USERS AND ROLES MEMBERSHIPS, review the output manually, some clauses can be not compatible 
  SELECT * FROM msmov.generate_users_and_member_roles();
